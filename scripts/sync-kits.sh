@@ -9,7 +9,7 @@ if [[ $# -gt 1 || ( -n "$mode" && "$mode" != --check ) ]]; then
 fi
 status=0
 shopt -s nullglob
-kits=(kits/v3/*/)
+kits=(kits/v3/amp/ kits/v3/codex/)
 if [[ ${#kits[@]} -eq 0 ]]; then
   echo "No v3 kits found" >&2
   exit 1

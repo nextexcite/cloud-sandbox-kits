@@ -29,7 +29,7 @@ class ReferenceTests(unittest.TestCase):
                 self.assertFalse((Path(temp) / 'spec.yaml').exists())
 
     def test_v3_stages_exact_source(self):
-        self.assertEqual(KITS, ['amp', 'codex'])
+        self.assertEqual(KITS, ['amp', 'codex', 'media'])
         for kit in KITS:
             with self.subTest(kit=kit), tempfile.TemporaryDirectory() as temp:
                 result = subprocess.run(['bash', str(ROOT / 'scripts/stage-v3.sh'), kit, temp],
@@ -37,6 +37,8 @@ class ReferenceTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stderr)
                 expected = {f'{kit}.yaml', f'{kit}.dockerfile', f'{kit}-context.md',
                             'scripts/install-toolchains.sh', 'scripts/refresh-node-lts.sh', 'scripts/verify-runtime.sh'}
+                if kit == 'media':
+                    expected = {'media.yaml', 'media.dockerfile', 'media-context.md', 'scripts/media.py'}
                 actual = {str(p.relative_to(temp)) for p in Path(temp).rglob('*') if p.is_file()}
                 self.assertEqual(actual, expected)
                 for name in expected:
@@ -67,11 +69,11 @@ class ReferenceTests(unittest.TestCase):
                 (root / 'scripts' / name).write_bytes((ROOT / 'scripts' / name).read_bytes())
             command = ['bash', str(root / 'scripts/sync-kits.sh')]
             self.assertNotEqual(subprocess.run(command + ['--check'], capture_output=True).returncode, 0)
-            for kit in KITS:
+            for kit in ['amp', 'codex']:
                 (root / 'kits/v3' / kit).mkdir(parents=True)
             self.assertEqual(subprocess.run(command, capture_output=True).returncode, 0)
             self.assertEqual(subprocess.run(command + ['--check'], capture_output=True).returncode, 0)
-            for kit in KITS:
+            for kit in ['amp', 'codex']:
                 (root / 'kits/v3' / kit / 'scripts/verify-runtime.sh').write_text('drift\n')
                 self.assertNotEqual(subprocess.run(command + ['--check'], capture_output=True).returncode, 0)
                 self.assertEqual(subprocess.run(command, capture_output=True).returncode, 0)
@@ -84,7 +86,8 @@ class ReferenceTests(unittest.TestCase):
             content = path.read_text()
             self.assertIn('USER agent', content)
             agent = 'amp' if path.name == 'Dockerfile' else path.stem
-            self.assertIn(f'ENTRYPOINT ["{agent}"]', content)
+            entrypoint = '/bin/bash' if agent == 'media' else agent
+            self.assertIn(f'ENTRYPOINT ["{entrypoint}"]', content)
             self.assertIn('ARG BASE_IMAGE=docker.io/sbx/shell-docker-image:latest', content)
         for path in (ROOT / 'kits').rglob('*'):
             if path.is_file():
@@ -98,7 +101,7 @@ class ReferenceTests(unittest.TestCase):
     def test_lts_and_shared_installer(self):
         self.assertIn('fnm list-remote --lts --latest', (ROOT / 'scripts/refresh-node-lts.sh').read_text())
         self.assertIn('process.release.lts', (ROOT / 'scripts/verify-runtime.sh').read_text())
-        for path in [ROOT / 'kits/v2/Dockerfile'] + list((ROOT / 'kits/v3').glob('*/*.dockerfile')):
+        for path in [ROOT / 'kits/v2/Dockerfile'] + [ROOT / f'kits/v3/{kit}/{kit}.dockerfile' for kit in ['amp', 'codex']]:
             self.assertIn('COPY scripts/install-toolchains.sh', path.read_text())
 
     def test_ci_is_read_only_and_builds_public_kit(self):

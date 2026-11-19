@@ -1,6 +1,6 @@
 # Docker Sandboxes agent kits
 
-Development environments for Amp and Codex:
+Development environments for Amp and Codex, plus a CPU media workload:
 
 - **v2 (Amp):** a descriptor referring to a separately built OCI runtime image.
 - **v3 (both):** self-contained workload directories using the pinned Kit frontend.
@@ -110,8 +110,8 @@ for older runtimes. A runtime may skip the optional capability.
 
 ### Synchronizing build inputs
 
-`scripts/` at the repository root is the source of truth. The three build
-scripts are vendored into every `kits/v3/*/scripts/` so Git-source builds need
+`scripts/` at the repository root is the source of truth for agent toolchains. The three build
+scripts are vendored into the Amp and Codex `scripts/` directories so Git-source builds need
 nothing outside their Kit directory. After editing a root script, run:
 
 ```sh
@@ -147,6 +147,48 @@ constitute full Kit conformance, sandbox lifecycle or cloud acceptance testing.
 
 Specifications: [Kit v3](https://github.com/docker/sandbox-kit-spec) and
 [Kit v2](https://github.com/docker/sbx-kits-contrib/blob/main/spec/SPEC-v2.md).
+
+## CPU media Kit v3
+
+`kits/v3/media` is a self-contained, non-root media workload, without agent
+credentials or GPU dependencies. It installs ffmpeg with libx264/libx265,
+Node for yt-dlp, and a Python venv with yt-dlp 2026.10.26, faster-whisper
+1.2.1, PyAV 16.0.1 and numpy 2.3.5. The tiny.en model and public Whisper
+JFK test sample are baked in for offline use. This is separate from the
+Amp/Codex toolchain images and their CI build matrix.
+
+```sh
+bash scripts/stage-v3.sh media /tmp/media-stage
+docker build -t media-kit:local -f kits/v3/media/media.dockerfile kits/v3/media
+docker run --rm --network none --entrypoint media-smoke media-kit:local
+sbx --cloud create --name media-trial --cpus 2 --memory 4g \
+  'git+https://github.com/nextexcite/sbx-agent-kits.git#dir=kits/v3/media'
+```
+
+If Git sources are refused, use a process-scoped
+`DOCKER_SANDBOXES_KIT_ALLOWED_SOURCES='["docker.io/","dhi.io/","github.com/nextexcite/"]'`
+override. Uploading a Git Kit builds locally and can take several minutes.
+
+Inside the workspace:
+
+```sh
+media-encode input.mov output.mp4 --codec h264
+media-encode input.mov output-hevc.mp4 --codec hevc
+media-transcribe input.mp4 --format srt > subtitles.srt
+media-transcribe input.wav --model base.en --format json > transcript.json
+media-fetch-audio 'https://www.youtube.com/watch?v=VIDEO_ID' 'audio.%(ext)s' --format wav
+media-smoke # optional: --url URL (download errors are WARN)
+```
+
+Transcription always decodes through ffmpeg to float32 numpy samples, avoiding
+native PyAV decode compatibility issues. Only tiny.en is preloaded; other models
+require network or a local directory. YouTube bot-checks cloud IPs even with JS:
+use an authorized cookies file via `--cookies` / `YT_COOKIES_FILE`, optionally
+`--proxy` / `YT_PROXY`. Never bake cookies into an image. Uploaded Kits do not
+route credentials; media deliberately declares no credential capability.
+Its runtime allowlist includes Hugging Face, PyPI, GitHub and YouTube/CDNs;
+other sites, redirects or proxies may need additional scoped allowances.
+See `kits/v3/media/media-context.md` for helper details and memory caveats.
 
 ## Registry diagnostics and Cloud acceptance
 
