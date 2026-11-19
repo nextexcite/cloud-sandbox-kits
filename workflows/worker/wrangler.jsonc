@@ -1,0 +1,13 @@
+{
+  "name": "sandbox-workflows-frontdoor",
+  "main": "index.ts",
+  "compatibility_date": "2026-11-19",
+  "secrets": { "required": ["FRONTDOOR_TOKEN", "CALLBACK_SECRET", "DOCKER_ID", "DOCKER_CLOUD_SANDBOX_TOKEN"] },
+  "kv_namespaces": [{ "binding": "JOBS", "id": "00000000000000000000000000000001" }],
+  "vars": {
+    "INNGEST_EVENT_URL": "http://127.0.0.1:8288",
+    "INNGEST_API_URL": "http://127.0.0.1:8288",
+    "INNGEST_EVENT_KEY": "",
+    "INNGEST_SIGNING_KEY": ""
+  }
+}
