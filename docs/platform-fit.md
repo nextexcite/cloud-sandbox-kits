@@ -28,7 +28,7 @@ architecture by choice, not because they cannot run bounded jobs.
 | Workload | Existing jobs | Docker Cloud (measured) | Other options (docs only) |
 | --- | --- | --- | --- |
 | Coding agent harnesses (Amp, Codex, Claude) | Stay on E2B | Fit for new jobs; Kit v3 images from this repo, policy logs; Amp Kit ran with nested Docker in the trial (no model run) | Daytona VM sandboxes |
-| Amp runner / orb daemon | Stay on E2B | Opt-in; a detached dummy process kept its PID across stop/resume. This is a proxy, not an orb test | Daytona **VM** pause/resume (container sandboxes clear memory on stop) |
+| Amp runner / orb daemon | Stay on E2B | Plausible for new jobs; a detached dummy process kept its PID across stop/resume. This is a proxy, not an orb test | Daytona **VM** pause/resume (container sandboxes clear memory on stop) |
 | CPU video encoding (H.264/HEVC) | Stay on E2B | 60 s of 1080p30, large size: H.264 16.7 s (3.6x realtime), HEVC 29.4 s (2.0x) | Lambda for bounded jobs under 15 min |
 | GPU encoding (NVENC) | n/a (E2B has no GPU) | None (no GPU in Docker Cloud) | Modal with an NVENC GPU, e.g. L4; Daytona GPU sandboxes (deleted on stop) |
 | Whisper beyond tiny/base | n/a | None | Modal GPU; Daytona GPU sandboxes |
