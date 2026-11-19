@@ -1,4 +1,4 @@
-name: Offline reference checks
+name: Reference checks
 on:
   push:
   pull_request:
@@ -16,3 +16,17 @@ jobs:
           persist-credentials: false
       - name: Validate source and stage examples
         run: bash scripts/check.sh
+  build-v3:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Build Amp with the Kit frontend
+        run: docker buildx build -f kits/v3/amp/amp.yaml kits/v3/amp -t sbx-agent-kits/amp:ci --load
+      - name: Verify runtime
+        run: docker run --rm --entrypoint sbx-agent-kits-verify sbx-agent-kits/amp:ci

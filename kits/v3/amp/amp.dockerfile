@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 # v3's image is a regular runnable OCI image, even when no sbx runtime exists.
-ARG BASE_IMAGE=dhi.io/sbx-templates:shell-docker
+ARG BASE_IMAGE=docker.io/sbx/shell-docker-image:latest
 FROM ${BASE_IMAGE}
 USER root
 COPY scripts/install-toolchains.sh /opt/sbx-agent-kits/install-toolchains.sh

@@ -1,4 +1,4 @@
-# syntax=docker/sandbox-kit:3.0.0-m.11@sha256:adbc0d1ea63451871d5d78111120bb29f2fd2b265e63d39c664ae2c3d722c805
+# syntax=docker/sandbox-kit:3.0.0-m.13@sha256:922fd778877714b2353de978c4993b81fe2e1908793630205eedbd7229ca0a1f
 schemaVersion: "3"
 kind: workload
 version: "0.1.0"
@@ -6,8 +6,15 @@ displayName: Amp Factory v3
 description: Example Amp workload with portable OCI toolchain image.
 # Kit 0.1.0 is not the upstream Amp binary version; Amp currently floats.
 sourceUrl: https://github.com/nextexcite/sbx-agent-kits
+args:
+  base_image:
+    default: docker.io/sbx/shell-docker-image:latest
+    description: Base image providing the agent user and sandbox environment
+    buildArg: BASE_IMAGE
 capabilities:
   - type: com.docker.sandbox/sbx@1
+  - type: com.docker.sandbox/dockerd@1
+    optional: true
   - type: com.docker.sandbox/network-policy@1
     config:
       runtime:
@@ -18,6 +25,7 @@ capabilities:
           - api.github.com:443
           - '*.githubusercontent.com:443'
           - registry.npmjs.org:443
+          - nodejs.org:443
           - pypi.org:443
           - files.pythonhosted.org:443
   - type: com.docker.sandbox/credential@1
