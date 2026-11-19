@@ -9,7 +9,10 @@ import { request as httpsRequest } from "node:https";
 await mkdir("out", { recursive: true });
 const children: ReturnType<typeof spawn>[] = [];
 const ownedJobs = new Set<string>();
-const env = { ...process.env, INNGEST_DEV: "1", CALLBACK_SECRET: randomBytes(32).toString("hex"), FRONTDOOR_TOKEN: randomBytes(32).toString("hex") };
+const inheritedEnv = { ...process.env };
+delete inheritedEnv.YT_COOKIES;
+delete inheritedEnv.YT_PROXY;
+const env = { ...inheritedEnv, INNGEST_DEV: "1", CALLBACK_SECRET: randomBytes(32).toString("hex"), FRONTDOOR_TOKEN: randomBytes(32).toString("hex") };
 const auth = { Authorization: `Bearer ${env.FRONTDOOR_TOKEN}` };
 const resolvedHosts = new Map<string, string>();
 async function start(command: string, args: string[], log: string, extra = {}) {
@@ -53,7 +56,17 @@ async function waitFor<T>(fn: () => Promise<T | undefined>, timeoutMs: number): 
   throw new Error("Timed out");
 }
 const results: object[] = [];
+const listing = () => execFileSync(process.env.SBX_BIN ?? "sbx", ["--cloud", "ls"], { encoding: "utf8" });
+const rows = (text: string) => text.split("\n").flatMap((line) => {
+  const parts = line.trim().split(/\s+/);
+  const id = parts.findIndex((part) => part.startsWith("sbx_"));
+  return id < 0 ? [] : [[parts[0], ...parts.slice(id, id + 3)].join(" ")];
+}).sort();
+const initialListing = listing();
+console.log(`INITIAL_SANDBOX_LISTING:\n${initialListing}`);
+let jobsPassed = false;
 try {
+  if (/\bwf-/.test(initialListing)) throw new Error("Pre-existing workflow sandboxes require separate reconciliation");
   for (const port of [3000, 8288, 8787]) {
     let occupied = false;
     try { await fetch(`http://localhost:${port}/health`); occupied = true; } catch {}
@@ -85,6 +98,7 @@ try {
     { kind: "encode", label: "encode", data: { durationSec: 6, codecs: ["h264", "hevc"], size: "large" } },
     { kind: "transcribe", label: "speech", data: { audioUrl: process.env.SPEECH_URL ?? "https://archive.org/download/gettysburg_address_librivox/gettysburg_address_lincoln_64kb.mp3", model: "tiny.en" } },
     { kind: "transcribe", label: "youtube", data: { youtubeUrl: "https://www.youtube.com/watch?v=jNQXAC9IVRw", model: "tiny.en" } },
+    { kind: "encode", label: "bad-source", data: { sourceUrl: "https://example.com/this-wf-source-does-not-exist.mp4", durationSec: 1, codecs: ["h264"], size: "large" } },
   ];
   const submitted = [];
   for (const item of cases) {
@@ -98,6 +112,7 @@ try {
       const { data } = await json(`${publicUrl}/jobs/${item.jobId}`, { headers: auth });
       const run = data.find((r: { status: string }) => ["Completed", "Failed", "Cancelled"].includes(r.status));
       if (!run) return undefined;
+      if (run.status !== "Completed") return { run, result: undefined };
       const output = await json("http://localhost:8288/v0/gql", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ query: "query($id: String!) { run(runID: $id) { output } }", variables: { id: run.run_id } }),
@@ -108,19 +123,45 @@ try {
       if (!result) return undefined;
       return { run, result };
     }, 1_800_000);
-    console.log(JSON.stringify({ label: item.label, runStatus: run.status, result }, null, 2));
+    if (item.label === "bad-source") {
+      if (run.status !== "Failed") throw new Error("Bad source did not produce Failed run status");
+      const failed = { label: item.label, jobId: item.jobId, runStatus: run.status };
+      results.push(failed);
+      console.log(`BAD_SOURCE_STATUS: ${JSON.stringify(failed)}`);
+      return;
+    }
     if (run.status !== "Completed") throw new Error(`${item.label} failed`);
     if (item.kind === "browser" && (!result.title || !result.screenshotBytes)) throw new Error("Browser output missing");
     if (item.kind !== "browser" && !result.callbackReceived) throw new Error("Missing callback evidence");
     if (item.label === "encode" && (result.status !== "completed" || result.copied.length !== 2)) throw new Error("Encode output missing");
     if (item.label === "speech" && (result.status !== "completed" || !result.result.transcript || result.result.audioSeconds < 120)) throw new Error("Speech output missing");
-    if (item.label === "youtube" && !["needs_cookies", "completed"].includes(result.status)) throw new Error("YouTube did not finish gracefully");
-    results.push({ label: item.label, runStatus: run.status, result });
+    if (item.label === "youtube" && result.status !== "needs_cookies") throw new Error("Unauthenticated YouTube did not return needs_cookies");
+    const summary = { label: item.label, jobId: item.jobId, runStatus: run.status,
+      status: result.status, callbackReceived: result.callbackReceived, model: item.data.model,
+      title: result.title, screenshotBytes: result.screenshotBytes, timings: result.timings,
+      stats: item.kind === "browser" ? undefined : {
+        language: result.result.language, audioSeconds: result.result.audioSeconds,
+        transcriptCharacters: result.result.transcript?.length,
+        downloadSeconds: result.result.downloadSeconds, modelLoadSeconds: result.result.modelLoadSeconds,
+        transcribeSeconds: result.result.transcribeSeconds, workSeconds: result.result.workSeconds,
+      },
+      outputs: result.result?.outputs?.map((output: { codec: string; bytes: number; sha256: string; seconds: number }) => ({
+        codec: output.codec, bytes: output.bytes, sha256: output.sha256, seconds: output.seconds,
+      })),
+    };
+    console.log(JSON.stringify(summary, null, 2));
+    results.push(summary);
   }));
-  await writeFile("out/e2e-results.json", JSON.stringify(results, null, 2));
   if (settled.some((x) => x.status === "rejected")) throw new Error(settled.filter((x) => x.status === "rejected").map((x) => x.reason.message).join("; "));
-  console.log("E2E_PASS: browser, detached encode, speech transcription, YouTube path");
+  jobsPassed = true;
 } finally {
+  const preSweepListing = listing();
+  console.log(`PRE_SWEEP_SANDBOX_LISTING:\n${preSweepListing}`);
+  const unchanged = JSON.stringify(rows(initialListing)) === JSON.stringify(rows(preSweepListing));
+  await writeFile("out/e2e-results.json", JSON.stringify({
+    head: execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim(),
+    jobs: results, preSweepListing, preexistingUnchanged: unchanged,
+  }, null, 2));
   for (const child of children) {
     if (child.pid) { try { process.kill(-child.pid, "SIGTERM"); } catch {} }
   }
@@ -132,8 +173,11 @@ try {
       }
     } finally { await client.sdk.close(); }
   }
-  const listing = execFileSync(process.env.SBX_BIN ?? "sbx", ["--cloud", "ls"], { encoding: "utf8" });
-  console.log(listing);
-  if (/\bwf-/.test(listing)) throw new Error("Workflow sandboxes remain");
+  const afterSweep = listing();
+  console.log(afterSweep);
+  if (/\bwf-/.test(preSweepListing)) throw new Error("Workflow sandboxes remained before fallback sweep");
+  if (/\bwf-/.test(afterSweep)) throw new Error("Workflow sandboxes remain");
+  if (!unchanged || JSON.stringify(rows(initialListing)) !== JSON.stringify(rows(afterSweep))) throw new Error("Pre-existing sandboxes changed");
+  if (jobsPassed) console.log("E2E_PASS: browser, detached encode, speech transcription, YouTube path; bad-source Failed");
   console.log("CLEANUP_PASS: no wf- sandboxes remain");
 }
