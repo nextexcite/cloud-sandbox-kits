@@ -156,7 +156,8 @@ Docker and sbx resolver access without login or credential changes. Run it
 only on an authorized, already authenticated client with Python 3, Docker
 Buildx and sbx installed. It prints status labels rather than references or
 raw CLI output. Each probe defaults to 15 seconds plus one-second cleanup
-grace. Public CI tests it using fake CLIs and never contacts a registry.
+grace. The diagnostic's CI tests use fake CLIs and never contact a registry;
+the separate image-build jobs pull public images and download toolchains.
 Process-group cleanup covers ordinary child processes, not children that
 explicitly escape into a different session. Registry success is not Kit
 conformance or Cloud execution evidence.

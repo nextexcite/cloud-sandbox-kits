@@ -1,7 +1,9 @@
 # Custom Cloud sandbox toolchain and durability acceptance
 
 Status: reference acceptance contract, not an executed Cloud benchmark.
-Public CI runs offline tests only.
+Public CI runs offline tests plus public-base Amp/Codex image builds and
+runtime smoke checks. It does not execute this Cloud acceptance contract,
+create sandboxes, log in to registries or publish images.
 
 ## Product and scope
 
@@ -20,6 +22,21 @@ change, scan for credentials and account-specific operational details.
 
 ## Preparation and registry gate
 
+- Select a self-contained v3 workload from `kits/v3/amp/` or
+  `kits/v3/codex/`. Local frontend builds use the matching descriptor and
+  directory, for example:
+
+  ```sh
+  docker buildx build -f kits/v3/codex/codex.yaml kits/v3/codex -t sbx-agent-kits/codex:local --load
+  ```
+
+  The default base is public `docker.io/sbx/shell-docker-image:latest`.
+  Private `dhi.io/sbx-templates:shell-docker` is an optional override, not
+  a prerequisite. For frontend builds use `--build-arg base_image=<image>`;
+  for `sbx run` use `--kit-arg base_image=<image>`. Local builds load an
+  image only; registry publication or Cloud template upload requires
+  separate approval. See the README for v2 builds and optional staging;
+  `dist/v3` is generated Amp output, not the committed build source.
 - Resolve an explicitly selected custom Kit to an immutable digest/platform.
   Existing published images do not automatically include later source changes;
   record source commit, build inputs and qualification evidence separately.
@@ -38,7 +55,8 @@ change, scan for credentials and account-specific operational details.
 
 The custom image supplies non-root UID 1000, HOME=/home/agent, explicit PATH
 with ~/.local/bin first, bash/git/CA trust, version-managed Node LTS, Python/uv,
-Bun, Deno, distro Chromium, and declared agent harness binaries. User-local
+Bun, Deno, Chromium (distro on Debian, Playwright on Ubuntu), and the selected
+Amp or Codex harness binary. User-local
 launchers may share ~/.local/bin; keep versioned payloads and package-manager
 state in their native directories. Never rely only on an interactive shell rc.
 
