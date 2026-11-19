@@ -36,11 +36,29 @@ done
 
 wrapper="${BASH_SOURCE[0]%/*}/probe-with-timeout.py"
 status=0
+cancel_probe() {
+  cancellation_signal="$1"
+  cancellation_code="$2"
+  [[ -n "$wrapper_pid" ]] || return 0
+  trap '' INT TERM
+  kill -s "$cancellation_signal" "$wrapper_pid" 2>/dev/null || true
+  wait "$wrapper_pid" || true
+  printf '%s %s INTERRUPTED\n' "$role" "$resolver"
+  exit "$cancellation_code"
+}
 probe() {
-  local role="$1" resolver="$2" code=0
+  local role="$1" resolver="$2" code=0 wrapper_pid= cancellation_signal= cancellation_code=
   shift 2
+  trap 'cancel_probe INT 130' INT
+  trap 'cancel_probe TERM 143' TERM
   # Kill the process group even if its launcher exits before its helpers.
-  python3 "$wrapper" "$seconds" "$@" >/dev/null 2>&1 || code=$?
+  python3 "$wrapper" "$seconds" "$@" >/dev/null 2>&1 &
+  wrapper_pid=$!
+  if [[ -n "$cancellation_signal" ]]; then
+    cancel_probe "$cancellation_signal" "$cancellation_code"
+  fi
+  wait "$wrapper_pid" || code=$?
+  trap - INT TERM
   case "$code" in
     0) printf '%s %s PASS\n' "$role" "$resolver" ;;
     130|143) printf '%s %s INTERRUPTED\n' "$role" "$resolver"; exit "$code" ;;

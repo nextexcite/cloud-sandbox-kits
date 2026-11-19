@@ -249,7 +249,8 @@ class RegistryDiagnosticTests(unittest.TestCase):
 
     def test_real_wrapper_interrupt_aborts_shell_without_later_probes(self):
         for signum, target in ((signal.SIGINT, "wrapper"), (signal.SIGTERM, "wrapper"),
-                               (signal.SIGINT, "diagnostic-group")):
+                               (signal.SIGINT, "diagnostic-group"),
+                               (signal.SIGTERM, "diagnostic-shell")):
             with self.subTest(signal=signum, target=target), tempfile.TemporaryDirectory() as directory:
                 path = Path(directory)
                 (path / "python3").symlink_to(sys.executable)
@@ -280,6 +281,8 @@ class RegistryDiagnosticTests(unittest.TestCase):
                     self.assertIsNotNone(wrapper_pid, "resolver wrapper did not start")
                     if target == "diagnostic-group":
                         os.killpg(process.pid, signum)
+                    elif target == "diagnostic-shell":
+                        process.send_signal(signum)
                     else:
                         os.kill(wrapper_pid, signum)
                     stdout, stderr = process.communicate(timeout=4)
@@ -289,6 +292,8 @@ class RegistryDiagnosticTests(unittest.TestCase):
                     self.assertEqual(stderr, "")
                     with self.assertRaises(ProcessLookupError):
                         os.kill(child_pid, 0)
+                    with self.assertRaises(ProcessLookupError):
+                        os.kill(wrapper_pid, 0)
                 finally:
                     # Clean test-owned processes even when the regression fails.
                     for pid in (child_pid, wrapper_pid):
@@ -344,9 +349,7 @@ class RegistryDiagnosticTests(unittest.TestCase):
                     if signum == signal.SIGINT:
                         os.killpg(process.pid, signum)
                     else:
-                        # The wrapper shares the shell group, but SIGTERM directly
-                        # to the shell would terminate it before it can print status.
-                        os.kill(int(wrapper_file.read_text()), signum)
+                        process.send_signal(signum)
                     stdout, stderr = process.communicate(timeout=4)
                     self.assertEqual(process.returncode, 128 + signum)
                     self.assertEqual(log.read_text().splitlines(), ["docker"])
