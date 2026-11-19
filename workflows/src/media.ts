@@ -5,6 +5,17 @@ import { inngest } from "./capture.js";
 import { dockerClient, type SandboxOptions } from "./sandbox.js";
 import { validateJob } from "./jobs.js";
 
+export function requestedOutputs(codecs: unknown, outputs: { path: string; codec: string; bytes: number; sha256: string }[]) {
+  if (codecs === undefined) return [];
+  if (!Array.isArray(codecs)) throw new Error("Invalid requested codecs");
+  return codecs.map((codec) => {
+    if (codec !== "h264" && codec !== "hevc") throw new Error("Invalid requested codec");
+    const output = outputs.find((item) => item.path === `/root/${codec}.mp4`);
+    if (!output) throw new Error("Requested output missing");
+    return { ...output, codec };
+  });
+}
+
 async function cleanup(jobId: string) {
   const client = dockerClient();
   try {
@@ -76,7 +87,7 @@ ${kind === "transcribe" ? "python3 -m venv /opt/media\n/opt/media/bin/pip -q ins
         const result = JSON.parse(Buffer.from(await client.readFile(sandbox, "/root/result.json")).toString());
         if (result.jobId !== jobId || result.status !== callback.data.status) throw new Error("Callback/result mismatch");
         const copied = [];
-        for (const output of result.result.outputs ?? []) {
+        for (const output of requestedOutputs(data.codecs, result.result.outputs ?? [])) {
           if (!/^\/root\/(h264|hevc)\.mp4$/.test(output.path)) throw new Error("Invalid output path");
           const check = await client.exec(sandbox, ["sha256sum", output.path]);
           if (check.exitCode !== 0 || check.stdout.split(" ")[0] !== output.sha256) throw new Error("Output checksum mismatch");

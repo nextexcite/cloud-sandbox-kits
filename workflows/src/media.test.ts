@@ -1,7 +1,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { NonRetriableError } from "inngest";
-import { mediaFunctions } from "./media.js";
+import { mediaFunctions, requestedOutputs } from "./media.js";
+
+test("artifact codec names come only from requested enums", () => {
+  const output = { path: "/root/h264.mp4", codec: "../../x", bytes: 1, sha256: "hash" };
+  assert.equal(requestedOutputs(["h264"], [output])[0].codec, "h264");
+  assert.deepEqual(requestedOutputs(undefined, [output]), []);
+  assert.throws(() => requestedOutputs(["../../x"], [output]), /Invalid requested codec/);
+  assert.throws(() => requestedOutputs(["hevc"], [output]), /Requested output missing/);
+});
 
 test("media runner failures reject the function and always schedule cleanup", async () => {
   for (const status of ["completed", "needs_cookies", "failed", "timeout"]) {
