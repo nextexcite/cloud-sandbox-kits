@@ -72,7 +72,7 @@ test("Worker enqueues jobs, authenticates callbacks, deduplicates and proxies st
     const response = await worker.fetch(new Request("https://worker/jobs/encode", { method: "POST", headers: { Authorization: "Bearer test-only" }, body: "{}" }), env);
     assert.equal(response.status, 202);
     const { jobId } = await response.json() as { jobId: string };
-    assert.equal(values.size, 1);
+    assert.equal(values.size, 2);
     const body = JSON.stringify({ jobId, status: "completed", result: { outputs: [] } });
     const perJobKey = createHmac("sha256", env.CALLBACK_SECRET).update(jobId).digest("hex");
     const signature = createHmac("sha256", perJobKey).update(body).digest("hex");
@@ -98,8 +98,32 @@ test("Worker records failed enqueue before returning an error", async () => {
     const response = await worker.fetch(new Request("https://worker/jobs/encode", { method: "POST", headers: { Authorization: "Bearer test-only" }, body: "{}" }), env);
     assert.equal(response.status, 502);
     const { jobId } = await response.json() as { jobId: string };
-    assert.equal(JSON.parse(values.get(jobId)!).submission, "failed");
+    assert.equal(JSON.parse(values.get(`submission:${jobId}`)!).submission, "failed");
     const status = await worker.fetch(new Request(`https://worker/jobs/${jobId}`, { headers: { Authorization: "Bearer test-only" } }), env);
     assert.deepEqual(await status.json(), { data: [{ status: "Failed" }] });
+  } finally { globalThis.fetch = oldFetch; }
+});
+test("Worker submission works with one KV write per key per second", async () => {
+  const values = new Map<string, string>();
+  const env = { INNGEST_EVENT_URL: "http://localhost", INNGEST_API_URL: "http://localhost", FRONTDOOR_TOKEN: "test-only", CALLBACK_SECRET: "test-only",
+    JOBS: { get: async (id: string) => values.get(id) ?? null, put: async (id: string, value: string) => {
+      if (values.has(id)) throw new Error("KV put rejected: same key written within 1 second");
+      values.set(id, value);
+    } } };
+  const oldFetch = globalThis.fetch;
+  globalThis.fetch = async (_url, init) => Response.json(init?.body ? { ids: ["accepted-event"] } : { data: [{ status: "Running" }] });
+  try {
+    const response = await worker.fetch(new Request("https://worker/jobs/encode", { method: "POST", headers: { Authorization: "Bearer test-only" }, body: "{}" }), env);
+    assert.equal(response.status, 202);
+    const { jobId, inngestEventIds } = await response.json() as { jobId: string; inngestEventIds: string[] };
+    assert.deepEqual(inngestEventIds, ["accepted-event"]);
+    const status = await worker.fetch(new Request(`https://worker/jobs/${jobId}`, { headers: { Authorization: "Bearer test-only" } }), env);
+    assert.deepEqual(await status.json(), { data: [{ status: "Running" }] });
+    globalThis.fetch = async () => { throw new Error("offline"); };
+    const failed = await worker.fetch(new Request("https://worker/jobs/encode", { method: "POST", headers: { Authorization: "Bearer test-only" }, body: "{}" }), env);
+    assert.equal(failed.status, 502);
+    const failedJob = await failed.json() as { jobId: string };
+    const failedStatus = await worker.fetch(new Request(`https://worker/jobs/${failedJob.jobId}`, { headers: { Authorization: "Bearer test-only" } }), env);
+    assert.deepEqual(await failedStatus.json(), { data: [{ status: "Failed" }] });
   } finally { globalThis.fetch = oldFetch; }
 });

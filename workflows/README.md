@@ -156,6 +156,10 @@ before a real deployment. Set `INNGEST_EVENT_URL=https://inn.gs` and
 key for status access. Event ingestion requires no code change. Cloud status API
 behavior and a real deployment have not been tested.
 
+The pending record, submission receipt/failure and callback receipt use separate
+KV keys. Each is written once in the normal path, avoiding Workers KV's one-write
+per second limit on a single key even when Inngest acknowledges immediately.
+
 Media functions have durable create/install, detached launch, wait, read-artifact,
 and delete steps. The callback wait is scheduled in parallel with launch so an
 early callback is not lost between sequential steps. The remote Python process

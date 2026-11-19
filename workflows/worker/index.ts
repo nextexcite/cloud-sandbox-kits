@@ -12,7 +12,10 @@ interface Env {
 interface Job { ids: string[]; callbackAccepted: boolean; submission?: "pending" | "submitted" | "failed" }
 async function getJob(env: Env, id: string): Promise<Job | undefined> {
   const value = await env.JOBS.get(id);
-  return value ? JSON.parse(value) : undefined;
+  if (!value) return undefined;
+  const [submission, callback] = await Promise.all([env.JOBS.get(`submission:${id}`), env.JOBS.get(`callback:${id}`)]);
+  const job: Job = JSON.parse(value);
+  return { ...job, ...(submission ? JSON.parse(submission) : {}), callbackAccepted: job.callbackAccepted || callback === "accepted" };
 }
 const encoder = new TextEncoder();
 const hex = (bytes: ArrayBuffer) => [...new Uint8Array(bytes)].map((x) => x.toString(16).padStart(2, "0")).join("");
@@ -73,8 +76,7 @@ export default {
         if (!job) return new Response("Unknown job", { status: 404 });
         if (job.callbackAccepted) return Response.json({ duplicate: true });
         const sent = await emit(env, { id: `finished-${data.jobId}`, name: "sandbox/job.finished", data: { jobId: data.jobId, status: data.status, result: data.result } });
-        job.callbackAccepted = true;
-        await env.JOBS.put(data.jobId, JSON.stringify(job), { expirationTtl: 86400 });
+        await env.JOBS.put(`callback:${data.jobId}`, "accepted", { expirationTtl: 86400 });
         return Response.json(sent);
       }
       if (request.headers.get("authorization") !== `Bearer ${env.FRONTDOOR_TOKEN}`) return new Response("Unauthorized", { status: 401 });
@@ -91,11 +93,10 @@ export default {
         let sent;
         try { sent = await emit(env, { id: jobId, name: kind === "browser" ? "browser/capture" : `media/${kind}`, data: { ...data, jobId } }); }
         catch {
-          await env.JOBS.put(jobId, JSON.stringify({ ...pending, submission: "failed" }), { expirationTtl: 86400 });
+          await env.JOBS.put(`submission:${jobId}`, JSON.stringify({ ids: [], submission: "failed" }), { expirationTtl: 86400 });
           return Response.json({ error: "Inngest event submission failed", jobId }, { status: 502 });
         }
-        const job = await getJob(env, jobId) ?? pending;
-        await env.JOBS.put(jobId, JSON.stringify({ ...job, ids: sent.ids, submission: "submitted" }), { expirationTtl: 86400 });
+        await env.JOBS.put(`submission:${jobId}`, JSON.stringify({ ids: sent.ids, submission: "submitted" }), { expirationTtl: 86400 });
         return Response.json({ jobId, inngestEventIds: sent.ids }, { status: 202 });
       }
       if (request.method === "GET" && url.pathname.startsWith("/jobs/")) {
