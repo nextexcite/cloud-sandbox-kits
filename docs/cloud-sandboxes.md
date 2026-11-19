@@ -362,17 +362,10 @@ one prepared-template clone, one shell-image fallback, one Amp Kit). The public
 port was unpublished, and both generated cloud templates were removed. No
 account-wide policy, quota, billing or credential settings were changed.
 
-The account was **not empty before the trial**. Two pre-existing stopped
-sandboxes were intentionally preserved rather than deleting unrelated state.
-Final `sbx --cloud ls` therefore is not empty; neither remaining row is a trial
-resource:
-
-```text
-SANDBOX                         AGENT   ID                                STATUS      PORTS   WORKSPACE   CREATED
-shell/amp-factory               shell   sbx_001m4hg9m677jx1bpkeh39fdq5b   ○ stopped           -           1mo
-sbx-builder-probe-41968811708           sbx_001m6mzwgmknrgme82415ce9btv   ○ stopped           -           2w
-```
+The account was **not empty before the trial**. Its pre-existing stopped
+sandboxes were intentionally preserved rather than deleting unrelated state, so
+final `sbx --cloud ls` is not empty; no remaining row is a trial resource.
 
 Final `sbx --cloud template ls`: `No cloud templates found`.
 Client-side logs, screenshot, CLI archive and Docker build cache remain;
-no repository changes except this document, and no commit was made.
+no repository changes except this document.
