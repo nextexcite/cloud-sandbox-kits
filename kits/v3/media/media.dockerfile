@@ -8,7 +8,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg python3-
  && /opt/media/bin/pip install --no-cache-dir yt-dlp==2026.10.26 faster-whisper==1.2.1 av==16.0.1 numpy==2.3.5
 ENV PATH=/opt/media/bin:${PATH} HF_HOME=/opt/media/cache IS_SANDBOX=1
 RUN /opt/media/bin/python -c "from huggingface_hub import snapshot_download; snapshot_download('Systran/faster-whisper-tiny.en', revision='0d3d19a32d3338f10357c0889762bd8d64bbdeba', local_dir='/opt/media/models/tiny.en', allow_patterns=['config.json','model.bin','tokenizer.json','vocabulary.txt'])" \
- && curl -fL --retry 3 https://raw.githubusercontent.com/openai/whisper/main/tests/jfk.flac -o /opt/media/jfk.flac \
+ && curl -fL --retry 3 https://raw.githubusercontent.com/openai/whisper/86098128c0b4f24f0e2aa2994de830614b474227/tests/jfk.flac -o /opt/media/jfk.flac \
+ && echo '63a4b1e4c1dc655ac70961ffbf518acd249df237e5a0152faae9a4a836949715  /opt/media/jfk.flac' | sha256sum -c - \
  && mkdir -p /opt/media/cache && chown -R 1000:1000 /opt/media/cache \
  && chmod -R a+rX /opt/media/models /opt/media/jfk.flac
 RUN /opt/media/bin/pip install --no-cache-dir yt-dlp-ejs==0.8.0

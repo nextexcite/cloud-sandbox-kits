@@ -28,6 +28,9 @@ class MediaTests(unittest.TestCase):
         for pin in ['yt-dlp==2026.10.26', 'yt-dlp-ejs==0.8.0', 'faster-whisper==1.2.1', 'av==16.0.1', 'numpy==2.3.5']:
             self.assertIn(pin, recipe)
         self.assertIn('USER agent', recipe)
+        self.assertIn('https://raw.githubusercontent.com/openai/whisper/86098128c0b4f24f0e2aa2994de830614b474227/tests/jfk.flac', recipe)
+        self.assertIn('63a4b1e4c1dc655ac70961ffbf518acd249df237e5a0152faae9a4a836949715', recipe)
+        self.assertIn('sha256sum -c -', recipe)
 
     def test_encode_codecs_and_threads(self):
         with patch.object(media, 'threads', return_value='2'), patch.object(media, 'run') as run:

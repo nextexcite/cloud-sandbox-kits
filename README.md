@@ -163,6 +163,7 @@ bash scripts/stage-v3.sh media /tmp/media-stage
 docker build -t media-kit:local -f kits/v3/media/media.dockerfile kits/v3/media
 docker run --rm --network none --entrypoint media-smoke media-kit:local
 sbx --cloud create --name media-trial --cpus 2 --memory 4g \
+  --kit-arg base_image=docker.io/sbx/shell-docker-image@sha256:9b301d7b1f0a573a2bbb8897c65252eacd6897a55dc7d07bea352a0baf944730 \
   'git+https://github.com/nextexcite/sbx-agent-kits.git#dir=kits/v3/media'
 ```
 
