@@ -1,0 +1,26 @@
+# syntax=docker/sandbox-kit:3.0.0-m.13@sha256:922fd778877714b2353de978c4993b81fe2e1908793630205eedbd7229ca0a1f
+schemaVersion: "3"
+kind: workload
+displayName: Browser v3
+description: Headless Chrome with agent-browser, Node LTS and international fonts.
+sourceUrl: https://github.com/nextexcite/sbx-agent-kits
+version: "0.43.0"
+args:
+  base_image:
+    default: docker.io/library/node:24-bookworm-slim
+    description: Debian Node LTS image with the node user at UID 1000
+    buildArg: BASE_IMAGE
+provides: ["agent-browser@0.43.0"]
+capabilities:
+  - type: com.docker.sandbox/sbx@1
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          - example.com:443
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      filename: AGENTS.md
+      directory: /home/agent
+      contentFile: ./browser-context.md
+dockerfile: browser.dockerfile

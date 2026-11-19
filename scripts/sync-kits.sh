@@ -15,6 +15,7 @@ if [[ ${#kits[@]} -eq 0 ]]; then
   exit 1
 fi
 for kit in "${kits[@]}"; do
+  [[ "${kit%/}" == kits/v3/browser ]] && continue
   destination="${kit}scripts"
   if [[ "$mode" != --check ]]; then
     mkdir -p "$destination"

@@ -1,9 +1,9 @@
 # Docker Sandboxes agent kits
 
-Development environments for Amp and Codex:
+Development environments for Amp and Codex, and a lean browser automation Kit:
 
 - **v2 (Amp):** a descriptor referring to a separately built OCI runtime image.
-- **v3 (both):** self-contained workload directories using the pinned Kit frontend.
+- **v3 (all three):** self-contained workload directories using the pinned Kit frontend.
 
 The v2 descriptor is not a runnable container image. The runtime Dockerfile
 and v3 workload image are ordinary OCI images, but Docker Sandboxes lifecycle,
@@ -13,7 +13,7 @@ network policy and credential injection require the corresponding runtime.
 
 This reference includes templates, a shared toolchain installer, context staging
 and offline structural tests. CI also builds and smoke-tests the public-base
-v3 images in an Amp/Codex matrix. It includes no deployment, registry publishing,
+v3 images in an Amp/Codex/Browser matrix. It includes no deployment, registry publishing,
 account configuration, cloud resource management or credential-provisioning workflows.
 Neither the tests nor GitHub Actions create a sandbox or publish an image.
 Agent permission bypass is not enabled by these examples.
@@ -52,6 +52,7 @@ sbx run --kit "git+https://github.com/nextexcite/sbx-agent-kits.git#dir=kits/v3/
 |---|---|---|---|
 | Amp | `amp` | Floats | `amp` / `AMP_API_KEY` |
 | Codex | `codex` | `0.166.0` | `openai` / `OPENAI_API_KEY` |
+| Browser | `/bin/bash` | agent-browser `0.43.0` | None |
 
 All credential declarations are optional: a missing binding does not block
 Kit resolution. Codex also accepts host-managed subscription OAuth
@@ -82,6 +83,59 @@ Codex exposes `--kit-arg version=<release>` for the agent pin.
 
 ## Local image builds
 
+### Browser automation (amd64)
+
+Browser uses public `node:24-bookworm-slim` (Node LTS), not the coding-toolchain
+installer or Docker-in-Docker base. Its base override must provide Debian apt,
+Node LTS/npm and a `node` user/group at UID 1000, renamed to `agent` during build.
+Chrome for Testing is installed by agent-browser with shared-library dependencies
+and exposed via `AGENT_BROWSER_EXECUTABLE_PATH`; Noto CJK, color emoji and
+Liberation fonts are installed. Chrome for Testing supports this Kit on amd64;
+do not select arm64. The Node/base tags and browser download float; agent-browser
+and the Kit frontend are pinned. No model credentials are needed.
+
+```sh
+docker buildx build -f kits/v3/browser/browser.yaml kits/v3/browser -t sbx-agent-kits/browser:ci --load
+docker run --rm --entrypoint browser-smoke sbx-agent-kits/browser:ci
+```
+
+The in-image `browser-smoke [new-output-directory]` fails on command, snapshot,
+PNG or exact downloaded-byte mismatch. It browses example.com over HTTPS, then
+serves a local CJK/emoji page and attachment to test fonts and a real browser
+HTTP download without relying on an external download site. It writes
+`example.png`, `cjk.png`, `snapshot.txt`, and `download.txt` (default directory:
+`/home/agent/workspace/browser-smoke`). Visual font rendering still needs human
+inspection; text in a snapshot alone does not prove glyph rendering.
+
+For Cloud, install/login to `sbx` using the [Cloud trial guide](docs/cloud-sandboxes.md)
+(on the `pr4` ref if that document has not merged). Create from Git; replace
+`BRANCH` and use a unique sandbox name:
+
+```sh
+DOCKER_SANDBOXES_KIT_ALLOWED_SOURCES='["docker.io/","dhi.io/","github.com/nextexcite/"]' \
+  sbx --cloud create --name browser-trial --ttl 2h \
+  'git+https://github.com/nextexcite/sbx-agent-kits.git#ref=BRANCH&dir=kits/v3/browser'
+sbx --cloud policy init allow-all --sandbox browser-trial
+sbx --cloud exec browser-trial browser-smoke
+sbx --cloud cp browser-trial:/home/agent/workspace/browser-smoke ./browser-smoke-artifacts
+sbx --cloud rm --force browser-trial
+# Inspect template ls and remove only the auto-created template for this build:
+sbx --cloud template ls
+sbx --cloud template rm --force TEMPLATE_NAME
+```
+
+The manifest initially allows only example.com:443. General-purpose browsing
+needs an explicit per-sandbox policy: allow-all is convenient for a disposable
+trial but permits arbitrary outbound traffic. Prefer deny-all plus specific
+domains for sensitive tasks, including redirects and CDNs. Do not change shared
+account defaults. Git Kit creation builds with local Buildx and uploads a cloud
+template; cold creation can take minutes. Shell-style entrypoint is suitable
+for `sbx --cloud exec NAME agent-browser ...`. `sync-kits.sh` intentionally
+skips Browser: its single smoke script is kit-local and it has no shared coding
+toolchains. CI builds and runs the browser smoke, without Cloud credentials.
+
+### Coding agents
+
 Build directly from the committed directory, without staging:
 
 ```sh
@@ -111,7 +165,7 @@ for older runtimes. A runtime may skip the optional capability.
 ### Synchronizing build inputs
 
 `scripts/` at the repository root is the source of truth. The three build
-scripts are vendored into every `kits/v3/*/scripts/` so Git-source builds need
+scripts are vendored into the Amp/Codex `kits/v3/*/scripts/` so Git-source builds need
 nothing outside their Kit directory. After editing a root script, run:
 
 ```sh
@@ -140,7 +194,7 @@ review and pin these dependencies before production use. The installer runs
 upstream scripts during image builds, including the public CI build job.
 
 Public CI checks shell syntax, deterministic staging and structural safety on
-a standard GitHub-hosted runner, then builds both v3 Kits and runs their smoke tests.
+a standard GitHub-hosted runner, then builds all three v3 Kits and runs their smoke tests.
 The smoke test checks executable discovery, UID and Node LTS; it does not
 exercise authenticated agent calls or every installed tool. Passing CI does not
 constitute full Kit conformance, sandbox lifecycle or cloud acceptance testing.
