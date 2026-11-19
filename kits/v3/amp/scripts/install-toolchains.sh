@@ -44,12 +44,14 @@ case "$mode" in
     curl -fsSL https://bun.sh/install | bash
     export DENO_INSTALL="$HOME/.deno"
     curl -fsSL https://deno.land/install.sh | sh
-    curl -fsSL https://ampcode.com/install.sh | bash
+    if [[ "${SBX_AGENT_BINARY:-amp}" == amp ]]; then
+      curl -fsSL https://ampcode.com/install.sh | bash
+    fi
     # Agent and interactive bash shells can select project Node versions via fnm.
     if ! grep -Fq 'fnm env --shell bash --use-on-cd' "$HOME/.bashrc" 2>/dev/null; then
       printf '\n# sbx-agent-kits: fnm managed Node versions\neval "$(fnm env --shell bash --use-on-cd)"\n' >> "$HOME/.bashrc"
     fi
-    /usr/local/bin/sbx-agent-kits-verify
+    /usr/local/bin/sbx-agent-kits-verify --toolchains-only
     ;;
   *) echo "Unknown install mode: $mode" >&2; exit 2 ;;
 esac

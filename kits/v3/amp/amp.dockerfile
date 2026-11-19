@@ -13,7 +13,7 @@ ENV FNM_DIR=/home/agent/.local/share/fnm \
     AGENT_BROWSER_EXECUTABLE_PATH=/usr/bin/chromium \
     IS_SANDBOX=1
 USER agent
-RUN /opt/sbx-agent-kits/install-toolchains.sh user
+RUN /opt/sbx-agent-kits/install-toolchains.sh user && sbx-agent-kits-verify
 WORKDIR /home/agent/workspace
 LABEL com.docker.sandboxes.flavor="amp"
 LABEL com.docker.sandboxes.start-docker="true"

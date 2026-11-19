@@ -17,6 +17,10 @@ jobs:
       - name: Validate source and stage examples
         run: bash scripts/check.sh
   build-v3:
+    strategy:
+      fail-fast: false
+      matrix:
+        kit: [amp, codex]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -26,7 +30,7 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           persist-credentials: false
-      - name: Build Amp with the Kit frontend
-        run: docker buildx build -f kits/v3/amp/amp.yaml kits/v3/amp -t sbx-agent-kits/amp:ci --load
+      - name: Build Kit with the Kit frontend
+        run: docker buildx build -f kits/v3/${{ matrix.kit }}/${{ matrix.kit }}.yaml kits/v3/${{ matrix.kit }} -t sbx-agent-kits/${{ matrix.kit }}:ci --load
       - name: Verify runtime
-        run: docker run --rm --entrypoint sbx-agent-kits-verify sbx-agent-kits/amp:ci
+        run: docker run --rm --entrypoint sbx-agent-kits-verify sbx-agent-kits/${{ matrix.kit }}:ci
