@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 # Real OCI runtime image for the v2 kit. The v2 descriptor is a separate artifact.
-ARG BASE_IMAGE=dhi.io/sbx-templates:shell-docker
+ARG BASE_IMAGE=docker.io/sbx/shell-docker-image:latest
 FROM ${BASE_IMAGE}
 USER root
 COPY scripts/install-toolchains.sh /opt/sbx-agent-kits/install-toolchains.sh
