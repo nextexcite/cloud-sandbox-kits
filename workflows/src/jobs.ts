@@ -21,8 +21,9 @@ export function validateJob(kind: string, body: unknown): Record<string, unknown
   }
   if (kind === "transcribe") {
     if (Boolean(input.audioUrl) === Boolean(input.youtubeUrl)) throw new Error("Provide exactly one audioUrl or youtubeUrl");
-    if (!["tiny", "base", "tiny.en", "base.en"].includes(String(input.model ?? "tiny.en"))) throw new Error("Unsupported model");
-    return { audioUrl: url("audioUrl", true), youtubeUrl: url("youtubeUrl", true), model: input.model ?? "tiny.en" };
+    const model = input.model === undefined ? "tiny.en" : input.model;
+    if (typeof model !== "string" || !["tiny", "base", "tiny.en", "base.en"].includes(model)) throw new Error("Unsupported model");
+    return { audioUrl: url("audioUrl", true), youtubeUrl: url("youtubeUrl", true), model };
   }
   throw new Error("Unknown job kind");
 }

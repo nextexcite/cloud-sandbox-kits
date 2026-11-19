@@ -15,6 +15,20 @@ test("empty, ambiguous and invalid requests fail validation", () => {
   for (const value of [{}, { audioUrl: "https://x", youtubeUrl: "https://y" }, { audioUrl: "file:///etc/passwd" }]) assert.throws(() => validateJob("transcribe", value));
   for (const value of [{ durationSec: 0 }, { durationSec: 121 }, { codecs: [] }, { size: "huge" }]) assert.throws(() => validateJob("encode", value));
 });
+test("transcription models must be strings and invalid types return 400", async () => {
+  const env = { INNGEST_EVENT_URL: "http://localhost", INNGEST_API_URL: "http://localhost", FRONTDOOR_TOKEN: "test-only", CALLBACK_SECRET: "test-only", JOBS: { get: async () => null, put: async () => {} } };
+  for (const model of [["tiny"], {}, 42, true, null]) {
+    const body = { audioUrl: "https://example.com/speech.mp3", model };
+    assert.throws(() => validateJob("transcribe", body), /Unsupported model/);
+    const response = await worker.fetch(new Request("https://worker/jobs/transcribe", {
+      method: "POST", headers: { Authorization: "Bearer test-only" }, body: JSON.stringify(body),
+    }), env);
+    assert.equal(response.status, 400);
+  }
+  for (const model of ["tiny", "tiny.en", "base", "base.en"]) {
+    assert.equal(validateJob("transcribe", { audioUrl: "https://example.com/speech.mp3", model }).model, model);
+  }
+});
 test("Worker rejects unauthorized jobs and unsigned callbacks", async () => {
   const env = { INNGEST_EVENT_URL: "http://localhost", INNGEST_API_URL: "http://localhost", FRONTDOOR_TOKEN: "test-only", CALLBACK_SECRET: "test-only", JOBS: { get: async () => null, put: async () => {} } };
   assert.equal((await worker.fetch(new Request("https://worker/jobs/encode", { method: "POST" }), env)).status, 401);
