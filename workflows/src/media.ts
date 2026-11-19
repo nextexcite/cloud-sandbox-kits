@@ -86,6 +86,7 @@ ${kind === "transcribe" ? "python3 -m venv /opt/media\n/opt/media/bin/pip -q ins
         const sandbox = await client.sdk.get(launched.name);
         const result = JSON.parse(Buffer.from(await client.readFile(sandbox, "/root/result.json")).toString());
         if (result.jobId !== jobId || result.status !== callback.data.status) throw new Error("Callback/result mismatch");
+        if (result.status === "failed") throw new NonRetriableError(`Sandbox media job failed: ${result.result?.reason ?? "runner_failed"}`);
         const copied = [];
         for (const output of requestedOutputs(data.codecs, result.result.outputs ?? [])) {
           if (!/^\/root\/(h264|hevc)\.mp4$/.test(output.path)) throw new Error("Invalid output path");
@@ -109,7 +110,6 @@ ${kind === "transcribe" ? "python3 -m venv /opt/media\n/opt/media/bin/pip -q ins
         return { ...result, callbackReceived: true, timings: launched.timings, copied };
       } finally { await client.sdk.close(); }
     });
-    if (result.status === "failed") throw new NonRetriableError("Sandbox media job failed");
     return result;
   } finally { await step.run("delete-sandbox", () => cleanup(jobId)); }
 }));

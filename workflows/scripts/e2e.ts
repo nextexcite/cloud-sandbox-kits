@@ -112,20 +112,23 @@ try {
       const { data } = await json(`${publicUrl}/jobs/${item.jobId}`, { headers: auth });
       const run = data.find((r: { status: string }) => ["Completed", "Failed", "Cancelled"].includes(r.status));
       if (!run) return undefined;
-      if (run.status !== "Completed") return { run, result: undefined };
+      if (run.status === "Cancelled") return { run, result: undefined };
       const output = await json("http://localhost:8288/v0/gql", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ query: "query($id: String!) { run(runID: $id) { output } }", variables: { id: run.run_id } }),
     });
     if (output.errors) throw new Error("Could not retrieve function output");
       const raw = typeof output.data.run.output === "string" ? JSON.parse(output.data.run.output) : output.data.run.output;
+      if (run.status === "Failed") return raw && (!Array.isArray(raw) || raw.length) ? { run, result: raw } : undefined;
       const result = Array.isArray(raw) ? raw.find((x) => x.op === "RunComplete")?.data : raw;
       if (!result) return undefined;
       return { run, result };
     }, 1_800_000);
     if (item.label === "bad-source") {
       if (run.status !== "Failed") throw new Error("Bad source did not produce Failed run status");
-      const failed = { label: item.label, jobId: item.jobId, runStatus: run.status };
+      const failureReason = "Sandbox media job failed: source_download_failed";
+      if (!JSON.stringify(result).includes(failureReason)) throw new Error("Bad source failed for an unexpected reason");
+      const failed = { label: item.label, jobId: item.jobId, runStatus: run.status, failureReason };
       results.push(failed);
       console.log(`BAD_SOURCE_STATUS: ${JSON.stringify(failed)}`);
       return;

@@ -17,7 +17,10 @@ def encode(config):
     stats = []
     source = ["-f", "lavfi", "-i", "testsrc2=size=1280x720:rate=24"]
     if data.get("sourceUrl"):
-        command(["curl", "-fL", "--max-time", "180", "--max-filesize", "100000000", data["sourceUrl"], "-o", "/root/input.media"])
+        try:
+            command(["curl", "-fL", "--max-time", "180", "--max-filesize", "100000000", data["sourceUrl"], "-o", "/root/input.media"])
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+            return "failed", {"reason": "source_download_failed"}
         source = ["-i", "/root/input.media"]
     for codec in data["codecs"]:
         path = f"/root/{codec}.mp4"

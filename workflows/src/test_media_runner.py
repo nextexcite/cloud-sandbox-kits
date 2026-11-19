@@ -11,9 +11,12 @@ RUNNER = Path(__file__).with_name("media-runner.py")
 
 
 class MediaRunnerTest(unittest.TestCase):
-    def run_transcription(self, transcript, error=False, probe_duration=b"10"):
+    def run_transcription(self, transcript, error=False, probe_duration=b"10", download_error=False):
         config = {"kind": "transcribe", "data": {"audioUrl": "https://example.com/audio", "model": "tiny"},
                   "jobId": "test-job", "callbackUrl": "https://example.com/callback", "callbackKey": "test-only"}
+        if download_error:
+            config["kind"] = "encode"
+            config["data"] = {"sourceUrl": "https://example.com/missing", "codecs": ["h264"], "durationSec": 1}
         model = Mock()
         model.transcribe.return_value = (iter([SimpleNamespace(text=transcript)]), SimpleNamespace(language="en"))
         whisper = Mock(return_value=model, side_effect=RuntimeError if error else None)
@@ -24,10 +27,17 @@ class MediaRunnerTest(unittest.TestCase):
                                         "faster_whisper": SimpleNamespace(WhisperModel=whisper)}), \
                 patch("pathlib.Path.read_text", return_value=json.dumps(config)), \
                 patch("pathlib.Path.write_text") as write, patch("pathlib.Path.touch"), \
-                patch("subprocess.run", return_value=subprocess.CompletedProcess([], 0, probe_duration, b"")), \
+                patch("subprocess.run", return_value=subprocess.CompletedProcess([], 0, probe_duration, b""),
+                      side_effect=subprocess.CalledProcessError(22, "curl") if download_error else None), \
                 patch("urllib.request.urlopen", return_value=response) as send:
             runpy.run_path(str(RUNNER))
         return json.loads(write.call_args.args[0]), send.call_args.args[0].data
+
+    def test_encode_download_failure_has_specific_safe_reason(self):
+        artifact, body = self.run_transcription("", download_error=True)
+        self.assertEqual(artifact["status"], "failed")
+        self.assertEqual(artifact["result"]["reason"], "source_download_failed")
+        self.assertEqual(json.loads(body)["status"], "failed")
 
     def test_large_transcript_stays_in_artifact_not_callback(self):
         transcript = "中" * 100000
