@@ -52,7 +52,6 @@ def transcribe(config):
         source = "/root/audio.download"
         command(["curl", "-fL", "--max-time", "180", "--max-filesize", "100000000", data["audioUrl"], "-o", source])
     download_seconds = time.monotonic() - started
-    duration = float(command(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=nw=1:nk=1", source]).stdout)
     command(["ffmpeg", "-y", "-v", "error", "-i", source, "-f", "f32le", "-ac", "1", "-ar", "16000", "/root/audio.pcm"])
     import numpy as np
     from faster_whisper import WhisperModel
@@ -60,7 +59,9 @@ def transcribe(config):
     model = WhisperModel(data["model"], device="cpu", compute_type="int8", cpu_threads=4)
     load_seconds = time.monotonic() - started
     started = time.monotonic()
-    segments, info = model.transcribe(np.fromfile("/root/audio.pcm", dtype=np.float32), beam_size=1)
+    audio = np.fromfile("/root/audio.pcm", dtype=np.float32)
+    duration = audio.size / 16000
+    segments, info = model.transcribe(audio, beam_size=1)
     transcript = " ".join(segment.text.strip() for segment in segments)
     return "completed", {"transcript": transcript, "language": info.language, "audioSeconds": duration,
                          "downloadSeconds": round(download_seconds, 3), "modelLoadSeconds": round(load_seconds, 3),
