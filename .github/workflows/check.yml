@@ -20,7 +20,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        kit: [amp, codex, browser]
+        kit: [amp, codex, browser, media]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -33,8 +33,11 @@ jobs:
       - name: Build Kit with the Kit frontend
         run: docker buildx build -f kits/v3/${{ matrix.kit }}/${{ matrix.kit }}.yaml kits/v3/${{ matrix.kit }} -t sbx-agent-kits/${{ matrix.kit }}:ci --load
       - name: Verify runtime
-        if: matrix.kit != 'browser'
+        if: matrix.kit == 'amp' || matrix.kit == 'codex'
         run: docker run --rm --entrypoint sbx-agent-kits-verify sbx-agent-kits/${{ matrix.kit }}:ci
       - name: Browser smoke
         if: matrix.kit == 'browser'
         run: docker run --rm --entrypoint browser-smoke sbx-agent-kits/browser:ci
+      - name: Media smoke
+        if: matrix.kit == 'media'
+        run: docker run --rm --network none --entrypoint media-smoke sbx-agent-kits/media:ci

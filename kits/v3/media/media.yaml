@@ -1,0 +1,38 @@
+# syntax=docker/sandbox-kit:3.0.0-m.13@sha256:922fd778877714b2353de978c4993b81fe2e1908793630205eedbd7229ca0a1f
+schemaVersion: "3"
+kind: workload
+version: "0.1.0"
+displayName: CPU Media v3
+description: CPU video encoding, offline speech transcription and audio retrieval.
+sourceUrl: https://github.com/nextexcite/sbx-agent-kits
+args:
+  base_image:
+    default: docker.io/sbx/shell-docker-image:latest
+    description: Base providing agent UID 1000 and the sandbox environment
+    buildArg: BASE_IMAGE
+capabilities:
+  - type: com.docker.sandbox/sbx@1
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          - huggingface.co:443
+          - '*.huggingface.co:443'
+          - '*.hf.co:443'
+          - 'cdn-lfs*.huggingface.co:443'
+          - pypi.org:443
+          - files.pythonhosted.org:443
+          - github.com:443
+          - '*.github.com:443'
+          - githubusercontent.com:443
+          - '*.githubusercontent.com:443'
+          - youtube.com:443
+          - '*.youtube.com:443'
+          - '*.googlevideo.com:443'
+          - '*.ytimg.com:443'
+          - youtu.be:443
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      filename: AGENTS.md
+      contentFile: ./media-context.md
+dockerfile: media.dockerfile

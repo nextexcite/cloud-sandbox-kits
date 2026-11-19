@@ -29,7 +29,7 @@ class ReferenceTests(unittest.TestCase):
                 self.assertFalse((Path(temp) / 'spec.yaml').exists())
 
     def test_v3_stages_exact_source(self):
-        self.assertEqual(KITS, ['amp', 'browser', 'codex'])
+        self.assertEqual(KITS, ['amp', 'browser', 'codex', 'media'])
         for kit in KITS:
             with self.subTest(kit=kit), tempfile.TemporaryDirectory() as temp:
                 result = subprocess.run(['bash', str(ROOT / 'scripts/stage-v3.sh'), kit, temp],
@@ -39,6 +39,8 @@ class ReferenceTests(unittest.TestCase):
                             'scripts/install-toolchains.sh', 'scripts/refresh-node-lts.sh', 'scripts/verify-runtime.sh'}
                 if kit == 'browser':
                     expected = {f'{kit}.yaml', f'{kit}.dockerfile', f'{kit}-context.md', 'scripts/browser-smoke.mjs'}
+                if kit == 'media':
+                    expected = {'media.yaml', 'media.dockerfile', 'media-context.md', 'scripts/media.py'}
                 actual = {str(p.relative_to(temp)) for p in Path(temp).rglob('*') if p.is_file()}
                 self.assertEqual(actual, expected)
                 for name in expected:
@@ -69,13 +71,11 @@ class ReferenceTests(unittest.TestCase):
                 (root / 'scripts' / name).write_bytes((ROOT / 'scripts' / name).read_bytes())
             command = ['bash', str(root / 'scripts/sync-kits.sh')]
             self.assertNotEqual(subprocess.run(command + ['--check'], capture_output=True).returncode, 0)
-            for kit in KITS:
+            for kit in ['amp', 'codex']:
                 (root / 'kits/v3' / kit).mkdir(parents=True)
             self.assertEqual(subprocess.run(command, capture_output=True).returncode, 0)
             self.assertEqual(subprocess.run(command + ['--check'], capture_output=True).returncode, 0)
-            for kit in KITS:
-                if kit == 'browser':
-                    continue
+            for kit in ['amp', 'codex']:
                 (root / 'kits/v3' / kit / 'scripts/verify-runtime.sh').write_text('drift\n')
                 self.assertNotEqual(subprocess.run(command + ['--check'], capture_output=True).returncode, 0)
                 self.assertEqual(subprocess.run(command, capture_output=True).returncode, 0)
@@ -88,7 +88,8 @@ class ReferenceTests(unittest.TestCase):
             content = path.read_text()
             self.assertIn('USER agent', content)
             agent = 'amp' if path.name == 'Dockerfile' else path.stem
-            self.assertIn(f'ENTRYPOINT ["{"/bin/bash" if agent == "browser" else agent}"]', content)
+            entrypoint = '/bin/bash' if agent in ['browser', 'media'] else agent
+            self.assertIn(f'ENTRYPOINT ["{entrypoint}"]', content)
             base = 'docker.io/library/node:24-bookworm-slim' if agent == 'browser' else 'docker.io/sbx/shell-docker-image:latest'
             self.assertIn(f'ARG BASE_IMAGE={base}', content)
         for path in (ROOT / 'kits').rglob('*'):
@@ -103,9 +104,7 @@ class ReferenceTests(unittest.TestCase):
     def test_lts_and_shared_installer(self):
         self.assertIn('fnm list-remote --lts --latest', (ROOT / 'scripts/refresh-node-lts.sh').read_text())
         self.assertIn('process.release.lts', (ROOT / 'scripts/verify-runtime.sh').read_text())
-        for path in [ROOT / 'kits/v2/Dockerfile'] + list((ROOT / 'kits/v3').glob('*/*.dockerfile')):
-            if path.stem == 'browser':
-                continue
+        for path in [ROOT / 'kits/v2/Dockerfile'] + [ROOT / f'kits/v3/{kit}/{kit}.dockerfile' for kit in ['amp', 'codex']]:
             self.assertIn('COPY scripts/install-toolchains.sh', path.read_text())
 
     def test_ci_is_read_only_and_builds_public_kit(self):
@@ -117,9 +116,10 @@ class ReferenceTests(unittest.TestCase):
         for forbidden in ['secrets.', 'self-hosted', 'pull_request_target', 'docker login', 'docker push', 'sbx ', '--privileged']:
             self.assertNotIn(forbidden, content)
         self.assertIn('timeout-minutes: 30', content)
-        self.assertIn('kit: [amp, codex, browser]', content)
+        self.assertIn('kit: [amp, codex, browser, media]', content)
         self.assertIn('docker buildx build -f kits/v3/${{ matrix.kit }}/${{ matrix.kit }}.yaml kits/v3/${{ matrix.kit }} -t sbx-agent-kits/${{ matrix.kit }}:ci --load', content)
         self.assertIn('docker run --rm --entrypoint sbx-agent-kits-verify sbx-agent-kits/${{ matrix.kit }}:ci', content)
+        self.assertIn('docker run --rm --network none --entrypoint media-smoke sbx-agent-kits/media:ci', content)
         self.assertNotIn('--push', content)
 
 if __name__ == '__main__':
