@@ -6,6 +6,7 @@ import {createServer} from 'node:http';
 import {resolve} from 'node:path';
 
 const output = resolve(process.argv[2] || '/home/agent/workspace/browser-smoke');
+const publicCheck = process.env.BROWSER_SMOKE_PUBLIC === '1';
 assert.equal(process.getuid(), 1000, 'smoke must run as agent UID 1000');
 assert.ok(process.release.lts, 'Node must be LTS');
 mkdirSync(output);
@@ -36,13 +37,12 @@ async function browser(...args) {
   });
 }
 try {
-  await browser('open', 'https://example.com');
-  assert.match(await browser('snapshot'), /Example Domain|documentation examples/);
-  await browser('screenshot', `${output}/example.png`);
-  for (const [name, url, expected] of [
+  const publicPages = publicCheck ? [
+    ['example', 'https://example.com', /Example Domain|documentation examples/],
     ['wikipedia', 'https://en.wikipedia.org', /Wikipedia/],
     ['wikipedia-ja', 'https://ja.wikipedia.org', /ウィキペディア/],
-  ]) {
+  ] : [];
+  for (const [name, url, expected] of publicPages) {
     await browser('open', url);
     const snapshot = await browser('snapshot');
     assert.match(snapshot, expected);
@@ -57,10 +57,10 @@ try {
   await browser('screenshot', `${output}/cjk.png`);
   await browser('download', 'a', `${output}/download.txt`);
   assert.equal(readFileSync(`${output}/download.txt`, 'utf8'), payload);
-  for (const name of ['example.png', 'wikipedia.png', 'wikipedia-ja.png', 'cjk.png']) {
+  for (const name of ['cjk.png', ...publicPages.map(([name]) => `${name}.png`)]) {
     assert.equal(readFileSync(`${output}/${name}`).subarray(0, 8).toString('hex'), '89504e470d0a1a0a');
   }
-  console.log('PASS: UID 1000, Node LTS, HTTPS open, snapshot, CJK screenshot, browser download (exact bytes)');
+  console.log('PASS: UID 1000, Node LTS, loopback open, snapshot, CJK screenshot, browser download (exact bytes)');
   console.log(`Artifacts: ${output}`);
 } finally {
   await browser('close');

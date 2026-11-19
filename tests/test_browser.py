@@ -38,21 +38,24 @@ if args[0] == 'download':
     pathlib.Path(args[2]).write_text('Browser Kit download: 中文 日本語 한국어 😀\\n')
 if os.environ['CASE'] == 'error' and args[0] == 'open':
     sys.exit(7)
+if args[0] == 'open' and args[1].startswith('https:') and os.environ['CASE'] != 'public':
+    sys.exit(8)
 ''')
             fake.chmod(0o755)
             command = ['node', '--import', 'data:text/javascript,process.getuid=()=>1000',
                        str(ROOT / 'kits/v3/browser/scripts/browser-smoke.mjs')]
-            for case in ['success', 'empty', 'error']:
+            for case in ['success', 'public', 'empty', 'error']:
                 with self.subTest(case=case):
                     result = subprocess.run(command + [str(directory / case)],
                                             env={**os.environ, 'PATH': f'{temp}:{os.environ["PATH"]}',
-                                                 'CASE': case}, capture_output=True, text=True, timeout=20)
-                    if case == 'success':
+                                                 'CASE': case, 'BROWSER_SMOKE_PUBLIC': '1' if case == 'public' else '0'},
+                                            capture_output=True, text=True, timeout=20)
+                    if case in ['success', 'public']:
                         self.assertEqual(result.returncode, 0, result.stderr)
                         self.assertIn('PASS:', result.stdout)
-                        for name in ['wikipedia', 'wikipedia-ja']:
-                            self.assertTrue((directory / case / f'{name}.png').is_file())
-                            self.assertTrue((directory / case / f'{name}-snapshot.txt').is_file())
+                        for name in ['example', 'wikipedia', 'wikipedia-ja']:
+                            self.assertEqual((directory / case / f'{name}.png').is_file(), case == 'public')
+                            self.assertEqual((directory / case / f'{name}-snapshot.txt').is_file(), case == 'public')
                     else:
                         self.assertNotEqual(result.returncode, 0)
                         self.assertNotIn('PASS:', result.stdout)

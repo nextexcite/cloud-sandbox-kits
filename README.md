@@ -94,20 +94,30 @@ Liberation fonts are installed. Chrome for Testing supports this Kit on amd64;
 do not select arm64. The Node/base tags and browser download float; agent-browser
 and the Kit frontend are pinned. No model credentials are needed.
 
+**Browser isolation is environment-dependent.** agent-browser 0.43.0
+automatically adds `--no-sandbox` when it detects Docker or CI; Chrome's renderer
+isolation is then off even as UID 1000. The live Docker Cloud check instead
+showed no `--no-sandbox`, namespace isolation and seccomp-BPF enabled. This is
+not a guarantee for every runtime. Use disposable, secret-free sandboxes for
+untrusted browsing. The outer sandbox boundary and non-root user are not
+substitutes for renderer isolation, and egress lockdown does not restore it.
+
 ```sh
 docker buildx build -f kits/v3/browser/browser.yaml kits/v3/browser -t sbx-agent-kits/browser:ci --load
 docker run --rm --entrypoint browser-smoke sbx-agent-kits/browser:ci
 ```
 
 The in-image `browser-smoke [new-output-directory]` fails on command, snapshot,
-PNG or exact downloaded-byte mismatch. It browses example.com and English/Japanese
-Wikipedia over HTTPS (open, snapshot, screenshot for each), then
-serves a local CJK/emoji page and attachment to test fonts and a real browser
-HTTP download without relying on an external download site. It writes
-`example.png`, `wikipedia.png`, `wikipedia-ja.png`, two Wikipedia snapshot text
-files, `cjk.png`, `snapshot.txt`, and `download.txt` (default directory:
+PNG or exact downloaded-byte mismatch. The default (also used by CI) only serves
+a loopback CJK/emoji page and HTTP attachment: no public sites are required.
+It writes `cjk.png`, `snapshot.txt`, and `download.txt` (default directory:
 `/home/agent/workspace/browser-smoke`). Visual font rendering still needs human
 inspection; text in a snapshot alone does not prove glyph rendering.
+
+Set `BROWSER_SMOKE_PUBLIC=1` to additionally open, snapshot and screenshot
+example.com and English/Japanese Wikipedia. Public-site outages, interstitials
+or text changes may fail this opt-in egress check independently of the image.
+Use a new output directory for each run.
 
 For Cloud, install/login to `sbx` using the
 [official installation guide](https://docs.docker.com/ai/sandboxes/install/).

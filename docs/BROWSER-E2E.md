@@ -1,150 +1,61 @@
-# Browser Kit v3 Cloud acceptance
+# Browser Kit Cloud workflow (amd64)
 
-## Current default and per-sandbox lockdown
+Requires signed-in `sbx`, Docker Buildx and a pushed Git ref. Git Kit creation
+builds locally and uploads a template; allow minutes on a cold cache.
 
-Browser now declares `config.runtime.allow: ['*']` under
-`com.docker.sandbox/network-policy@1`: general-purpose outbound browsing is open
-without a client policy override. The
-[Kit v3 capability specification](https://github.com/docker/sandbox-kit-spec/blob/main/docs/spec/capabilities/com.docker.sandbox/network-policy@1.md)
-defines bare `*` and `**` as all egress; its builder example uses `**`.
-The contributed Shell Kit was also inspected: its narrower explicit domain list
-illustrates that a Kit adds declared grants rather than relying on host defaults.
+The Kit grants open egress with `network-policy@1` `runtime.allow: ['*']`.
+Use disposable, secret-free sandboxes for untrusted browsing: agent-browser
+0.43.0 auto-adds `--no-sandbox` in detected Docker/CI environments. Non-root,
+outer sandbox isolation and egress rules do not replace Chrome renderer
+isolation when it is disabled.
 
-Open egress can exfiltrate data. Replace the policy on a specific sandbox before
-sensitive work; do not change account-wide defaults:
+## Provision → optional lockdown → test → cleanup
 
 ```sh
-sbx --cloud policy init deny-all --sandbox NAME
-sbx --cloud policy rm network --sandbox NAME --resource '*' --force
-sbx --cloud policy allow network en.wikipedia.org:443 --sandbox NAME
-sbx --cloud policy allow network ja.wikipedia.org:443 --sandbox NAME
-sbx --cloud policy ls NAME
-# Or use the broader development baseline instead of a hand-picked allowlist:
-sbx --cloud policy init balanced --sandbox NAME
+NAME="browser-trial-$(date +%s)"
+REF=devin/1795087544-browser-kit # or another pushed ref
+DOCKER_SANDBOXES_KIT_ALLOWED_SOURCES='["docker.io/","dhi.io/","github.com/nextexcite/"]' \
+  sbx --cloud create --name "$NAME" --platform linux/amd64 --ttl 2h \
+  "git+https://github.com/nextexcite/sbx-agent-kits.git#ref=$REF&dir=kits/v3/browser"
+# Record the generated template ID printed by create for cleanup below.
+sbx --cloud policy ls "$NAME"
+
+# OPTIONAL: restrict this sandbox, not the account. On sbx v0.54.0 init alone
+# retains the Kit wildcard; remove it explicitly, including for balanced mode.
+# sbx --cloud policy rm network --sandbox "$NAME" --resource '*' --force
+# sbx --cloud policy init deny-all --sandbox "$NAME"
+# sbx --cloud policy allow network en.wikipedia.org:443 --sandbox "$NAME"
+# sbx --cloud policy allow network ja.wikipedia.org:443 --sandbox "$NAME"
+# sbx --cloud policy allow network example.com:443 --sandbox "$NAME"
+# Alternative baseline after removing '*': policy init balanced --sandbox "$NAME"
+# sbx --cloud policy ls "$NAME" # ensure no wildcard grant remains
+
+# Required smoke is loopback-only, including CJK and a real HTTP download.
+sbx --cloud exec "$NAME" browser-smoke
+# OPTIONAL: live public egress/content check; requires the hosts above and any
+# redirects/CDNs. Public-site failures do not necessarily indicate image faults.
+sbx --cloud exec "$NAME" env BROWSER_SMOKE_PUBLIC=1 browser-smoke /home/agent/workspace/public-smoke
+sbx --cloud cp "$NAME":/home/agent/workspace/browser-smoke ./browser-smoke-artifacts
+sbx --cloud cp "$NAME":/home/agent/workspace/public-smoke ./browser-public-artifacts
+
+sbx --cloud rm --force "$NAME"
+sbx --cloud template ls
+# Remove ONLY the generated template recorded from this create (not other rows):
+sbx --cloud template rm --force TEMPLATE_ID_FROM_CREATE
 ```
 
-On sbx v0.54.0, `policy init` changes the default but **retains the Kit wildcard**;
-the explicit `policy rm` is required for deny-all or balanced to restrict access.
-Check that the replacement policy has no wildcard allow. Add required redirect
-and CDN hosts explicitly; deny rules take precedence over allows.
+## Verified behavior
 
-## Open-egress default live trial
+Live amd64 Cloud checks with sbx v0.54.0 verified open egress with no policy
+mutation: `policy ls` showed default deny-all plus `allow *`. Removing the
+wildcard under deny-all blocked navigation; allowing a specific host restored it.
+Screenshots showed English/Japanese Wikipedia and readable CJK/color emoji.
 
-Re-tested from the pushed branch at `84efb19` on 2026-11-19 with sbx v0.54.0,
-without running any policy mutation before the smoke. Creation took 80.11s
-including a cached local Git Kit build, upload/preparation and 6s sandbox create.
-The immediately inspected per-sandbox policy was:
-
-```text
-  Default:  deny-all
-DECISION   NETWORK
-allow      *
-```
-
-This verifies that the Kit wildcard was applied even though the sandbox's
-default decision was deny-all. No account policy or per-sandbox allow-all command
-was used. The in-image smoke completed in 3.97s (including client exec overhead):
-
-```text
-PASS: open, snapshot, screenshot https://en.wikipedia.org
-PASS: open, snapshot, screenshot https://ja.wikipedia.org
-PASS: UID 1000, Node LTS, HTTPS open, snapshot, CJK screenshot, browser download (exact bytes)
-Artifacts: /home/agent/workspace/browser-smoke
-```
-
-All eight files were exported with `sbx --cloud cp` into
-`/home/ubuntu/browser-smoke-artifacts/cloud2/` on the trial client: `example.png`,
-`wikipedia.png`, `wikipedia-ja.png`, `wikipedia-snapshot.txt`,
-`wikipedia-ja-snapshot.txt`, `cjk.png`, `snapshot.txt` and `download.txt`.
-The English and Japanese Wikipedia screenshots were visually inspected and
-showed rendered main pages, not error/interstitial screens. The local fixture
-again rendered Chinese, Japanese, Korean and color emoji without glyph boxes.
-
-After artifact export, a lockdown check on the same disposable sandbox showed
-that `policy init deny-all` alone retained `allow *` and browsing still worked.
-Removing `*` explicitly left `Default: deny-all` with no rules, and a fresh
-browser session failed with `Navigation failed: net::ERR_NAME_NOT_RESOLVED`.
-Adding only `en.wikipedia.org:443` allowed a fresh session to open the English
-main page again. The lockdown instructions above include this essential removal.
-
-The trial sandbox `browser-kit-cloud2-1795087544`
-(`sbx_001m7sse0knhvvhmgdrp8hq4gmm`) and generated template
-`tmpl_001m7ssc1kh54mpfwvtz1rsym7w` were removed after checks. The two pre-existing
-stopped sandboxes were preserved. Trial logs remain alongside the `cloud2/`
-directory; screenshots and logs are not committed.
-
-## Initial trial (before open-egress default)
-
-Measured 2026-11-19, Linux amd64 client, sbx v0.54.0, branch
-`devin/1795087544-browser-kit`, image inputs at commit `bc94e40`.
-This is a single smoke run, not a benchmark or an anti-bot compatibility claim.
-
-### Results
-
-The committed Git-source Browser Kit built, uploaded, created and applied in
-94.37 seconds total, using the local Docker Buildx cache from the preceding
-local image build. CLI stage timings: build 7s, upload/template preparation
-approximately 77s (upload approximately 30s, then preparation), sandbox creation
-6s, kit apply 1s. Local successful cold-layer build took 64.51s; a smoke-only
-rebuild reused those layers. This is **not** a cold Git Kit provisioning time.
-
-Local Docker smoke: 1.15s. Cloud smoke: 2.68s, including exec client overhead.
-Both printed:
-
-```text
-PASS: UID 1000, Node LTS, HTTPS open, snapshot, CJK screenshot, browser download (exact bytes)
-Artifacts: /home/agent/workspace/browser-smoke
-```
-
-Cloud identity/version checks printed:
-
-```text
-uid=1000(agent) gid=1000(agent) groups=1000(agent)
-v24.22.3
-agent-browser 0.43.0
-```
-
-The smoke asserted HTTPS page snapshot text, PNG headers, CJK snapshot text and
-all 54 bytes of a browser-downloaded HTTP attachment. The attachment is served by
-an in-process loopback HTTP server, not fetched by curl or synthesized directly
-into the output file. `sbx --cloud cp` downloaded all four output files into
-`/home/ubuntu/browser-smoke-artifacts/cloud/` on the trial client:
-
-- `example.png` (56,400 bytes)
-- `cjk.png` (15,563 bytes)
-- `snapshot.txt` (107 bytes)
-- `download.txt` (54 bytes)
-
-The CJK screenshot was visually inspected: Chinese, Japanese and Korean glyphs
-and a color emoji rendered, with no missing-glyph boxes. Local screenshot also
-passed visual inspection. Artifacts/logs remain on the trial client, not in Git.
-
-### Platform and build gotchas
-
-- Git sources require the scoped client environment override
-  `DOCKER_SANDBOXES_KIT_ALLOWED_SOURCES='["docker.io/","dhi.io/","github.com/nextexcite/"]'`.
-  `#ref=devin/1795087544-browser-kit&dir=kits/v3/browser` resolved successfully.
-- Explicit `policy init allow-all --sandbox browser-kit-1795087544` was applied
-  before smoke. The manifest's conservative example.com rule is not a claim
-  about inherited Cloud policy defaults. No account-wide policy was changed.
-- agent-browser 0.43.0 downloads Chrome under `/root/.agent-browser/browsers`,
-  not `/root/.cache`; the image copies Chrome to a globally readable `/opt/chrome`
-  before removing root's browser cache. An initial local build exposed this.
-- example.com's snapshot no longer necessarily contains an "Example Domain"
-  heading. The first local smoke caught this; the assertion accepts the heading
-  or its documentation-examples text. CJK/download fixtures are deterministic.
-- The CLI warned it could not keep the image in the local sandbox daemon cache
-  (`sandboxd.sock: connect: no such file or directory`), but upload and Cloud
-  execution succeeded. Local Docker Buildx cache remained usable.
-- Headless CLI login warned that no keychain was available and stored credentials
-  protected by filesystem permissions. Credentials were bound only for login,
-  never passed into the image or repository.
-
-### Cleanup
-
-Only the trial sandbox `browser-kit-1795087544`
-(`sbx_001m7ss51f4gv8gx4h3k941w1qa`) and its auto-created template
-`kit3src-browser-87ed90e75387-linux-amd64-2c4096m`
-(`tmpl_001m7ss2n2dy4tvt2jwkkf27nbh`) were removed after artifact export.
-Two pre-existing stopped sandboxes were left untouched. No quota settings,
-account policy, or unrelated resources were changed.
+On the live Cloud image, agent-browser 0.43.0 launched Chrome 158 as UID 1000
+**without** `--no-sandbox`. `chrome://sandbox` reported Namespace, PID/network
+namespaces Yes and Seccomp-BPF Yes ("You are adequately sandboxed"). Renderer
+`/proc` status showed `NoNewPrivs: 1`, `Seccomp: 2` and nested PID namespaces.
+The Cloud environment lacked Docker/Podman marker files and had `CI` unset;
+the upstream auto-disable condition did not apply there. Docker/CI behavior is
+different: check the actual launch rather than assuming all environments have
+renderer isolation. This Kit does not override agent-browser's sandbox detection.
