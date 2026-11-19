@@ -132,15 +132,18 @@ per-sandbox allow-all command is needed. This permits arbitrary outbound traffic
 lock down a sandbox before browsing sensitive data or untrusted sites:
 
 ```sh
-# Replace this sandbox's open policy with a restricted baseline:
+# Remove the Kit's grant; init alone changes the default, not Kit rules:
+sbx --cloud policy rm network --sandbox browser-trial --resource '*' --force
 sbx --cloud policy init deny-all --sandbox browser-trial
 sbx --cloud policy allow network en.wikipedia.org:443 --sandbox browser-trial
 sbx --cloud policy allow network ja.wikipedia.org:443 --sandbox browser-trial
 sbx --cloud policy ls browser-trial
-# Alternative: broader development allowlist, still not unrestricted browsing:
+# Alternative after removing '*': broader development baseline:
 sbx --cloud policy init balanced --sandbox browser-trial
 ```
 
+`policy init` alone retains the Kit's wildcard rule on sbx v0.54.0: removing it
+explicitly is essential for either deny-all or balanced to restrict browsing.
 Include required redirects and CDNs in a narrow allowlist, and inspect the policy
 to ensure no `*` grant remains after replacement. These commands change only the
 named sandbox, not shared account defaults. Git Kit creation builds with local Buildx and uploads a cloud

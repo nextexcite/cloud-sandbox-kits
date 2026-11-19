@@ -15,6 +15,7 @@ sensitive work; do not change account-wide defaults:
 
 ```sh
 sbx --cloud policy init deny-all --sandbox NAME
+sbx --cloud policy rm network --sandbox NAME --resource '*' --force
 sbx --cloud policy allow network en.wikipedia.org:443 --sandbox NAME
 sbx --cloud policy allow network ja.wikipedia.org:443 --sandbox NAME
 sbx --cloud policy ls NAME
@@ -22,8 +23,55 @@ sbx --cloud policy ls NAME
 sbx --cloud policy init balanced --sandbox NAME
 ```
 
+On sbx v0.54.0, `policy init` changes the default but **retains the Kit wildcard**;
+the explicit `policy rm` is required for deny-all or balanced to restrict access.
 Check that the replacement policy has no wildcard allow. Add required redirect
 and CDN hosts explicitly; deny rules take precedence over allows.
+
+## Open-egress default live trial
+
+Re-tested from the pushed branch at `84efb19` on 2026-11-19 with sbx v0.54.0,
+without running any policy mutation before the smoke. Creation took 80.11s
+including a cached local Git Kit build, upload/preparation and 6s sandbox create.
+The immediately inspected per-sandbox policy was:
+
+```text
+  Default:  deny-all
+DECISION   NETWORK
+allow      *
+```
+
+This verifies that the Kit wildcard was applied even though the sandbox's
+default decision was deny-all. No account policy or per-sandbox allow-all command
+was used. The in-image smoke completed in 3.97s (including client exec overhead):
+
+```text
+PASS: open, snapshot, screenshot https://en.wikipedia.org
+PASS: open, snapshot, screenshot https://ja.wikipedia.org
+PASS: UID 1000, Node LTS, HTTPS open, snapshot, CJK screenshot, browser download (exact bytes)
+Artifacts: /home/agent/workspace/browser-smoke
+```
+
+All eight files were exported with `sbx --cloud cp` into
+`/home/ubuntu/browser-smoke-artifacts/cloud2/` on the trial client: `example.png`,
+`wikipedia.png`, `wikipedia-ja.png`, `wikipedia-snapshot.txt`,
+`wikipedia-ja-snapshot.txt`, `cjk.png`, `snapshot.txt` and `download.txt`.
+The English and Japanese Wikipedia screenshots were visually inspected and
+showed rendered main pages, not error/interstitial screens. The local fixture
+again rendered Chinese, Japanese, Korean and color emoji without glyph boxes.
+
+After artifact export, a lockdown check on the same disposable sandbox showed
+that `policy init deny-all` alone retained `allow *` and browsing still worked.
+Removing `*` explicitly left `Default: deny-all` with no rules, and a fresh
+browser session failed with `Navigation failed: net::ERR_NAME_NOT_RESOLVED`.
+Adding only `en.wikipedia.org:443` allowed a fresh session to open the English
+main page again. The lockdown instructions above include this essential removal.
+
+The trial sandbox `browser-kit-cloud2-1795087544`
+(`sbx_001m7sse0knhvvhmgdrp8hq4gmm`) and generated template
+`tmpl_001m7ssc1kh54mpfwvtz1rsym7w` were removed after checks. The two pre-existing
+stopped sandboxes were preserved. Trial logs remain alongside the `cloud2/`
+directory; screenshots and logs are not committed.
 
 ## Initial trial (before open-egress default)
 
