@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 # Real OCI runtime image for the v2 kit. The v2 descriptor is a separate artifact.
-ARG BASE_IMAGE=dhi.io/sbx-templates:shell-docker
+ARG BASE_IMAGE=docker.io/sbx/shell-docker-image:latest
 FROM ${BASE_IMAGE}
 USER root
 COPY scripts/install-toolchains.sh /opt/sbx-agent-kits/install-toolchains.sh
@@ -13,7 +13,7 @@ ENV FNM_DIR=/home/agent/.local/share/fnm \
     AGENT_BROWSER_EXECUTABLE_PATH=/usr/bin/chromium \
     IS_SANDBOX=1
 USER agent
-RUN /opt/sbx-agent-kits/install-toolchains.sh user
+RUN /opt/sbx-agent-kits/install-toolchains.sh user && sbx-agent-kits-verify
 WORKDIR /home/agent/workspace
 LABEL com.docker.sandboxes.flavor="amp"
 LABEL com.docker.sandboxes.start-docker="true"

@@ -7,11 +7,16 @@ case "$mode" in
     [[ "$(id -u)" -eq 0 ]] || { echo "system mode requires root" >&2; exit 1; }
     export DEBIAN_FRONTEND=noninteractive
     apt-get update
-    # Debian-trixie-based DHI sbx template: distro Chromium is amd64/arm64.
+    . /etc/os-release
+    browser_packages=()
+    # Ubuntu's Chromium package is a Snap launcher, not a container browser.
+    if [[ "$ID" != ubuntu ]]; then
+      browser_packages+=(chromium)
+    fi
     apt-get install -y --no-install-recommends \
-      bash ca-certificates chromium curl git gh jq openssh-client \
+      bash ca-certificates curl git gh jq openssh-client \
       build-essential make pkg-config python3 python3-venv \
-      unzip zip xz-utils tar sudo
+      unzip zip xz-utils tar sudo "${browser_packages[@]}"
     rm -rf /var/lib/apt/lists/*
     ;;
   user)
@@ -26,18 +31,27 @@ case "$mode" in
     npm config set prefix "$HOME/.local/npm" --location=user
     npm install --global --no-fund --no-audit \
       pnpm @mariozechner/pi-coding-agent agent-browser skills
+    . /etc/os-release
+    if [[ "$ID" == ubuntu ]]; then
+      npx --yes playwright install --with-deps chromium
+      browser="$(find "$HOME/.cache/ms-playwright" -path '*/chrome-linux*/chrome' -type f | sort | tail -n 1)"
+      test -n "$browser" && test -x "$browser"
+      sudo ln -sfn "$browser" /usr/bin/chromium
+    fi
     curl -fsSL https://mise.run | env MISE_INSTALL_PATH="$HOME/.local/bin/mise" sh
     curl -LsSf https://astral.sh/uv/install.sh | env UV_UNMANAGED_INSTALL="$HOME/.local/bin" sh
     export BUN_INSTALL="$HOME/.bun"
     curl -fsSL https://bun.sh/install | bash
     export DENO_INSTALL="$HOME/.deno"
     curl -fsSL https://deno.land/install.sh | sh
-    curl -fsSL https://ampcode.com/install.sh | bash
+    if [[ "${SBX_AGENT_BINARY:-amp}" == amp ]]; then
+      curl -fsSL https://ampcode.com/install.sh | bash
+    fi
     # Agent and interactive bash shells can select project Node versions via fnm.
     if ! grep -Fq 'fnm env --shell bash --use-on-cd' "$HOME/.bashrc" 2>/dev/null; then
       printf '\n# sbx-agent-kits: fnm managed Node versions\neval "$(fnm env --shell bash --use-on-cd)"\n' >> "$HOME/.bashrc"
     fi
-    /usr/local/bin/sbx-agent-kits-verify
+    /usr/local/bin/sbx-agent-kits-verify --toolchains-only
     ;;
   *) echo "Unknown install mode: $mode" >&2; exit 2 ;;
 esac
