@@ -76,7 +76,8 @@ except Exception as error:
 result["workSeconds"] = round(time.monotonic() - started, 3)
 payload = {"jobId": config["jobId"], "status": status, "result": result}
 Path("/root/result.json").write_text(json.dumps(payload))
-body = json.dumps(payload, separators=(",", ":")).encode()
+callback = {**payload, "result": {key: value for key, value in result.items() if key != "transcript"}}
+body = json.dumps(callback, separators=(",", ":")).encode()
 signature = hmac.new(config["callbackKey"].encode(), body, hashlib.sha256).hexdigest()
 for attempt in range(8):
     try:
