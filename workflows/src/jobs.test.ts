@@ -61,7 +61,11 @@ test("Worker enqueues jobs, authenticates callbacks, deduplicates and proxies st
   const oldFetch = globalThis.fetch;
   const events: unknown[] = [];
   globalThis.fetch = async (_url, init) => {
-    if (init?.body) events.push(JSON.parse(String(init.body)));
+    if (init?.body) {
+      const event = JSON.parse(String(init.body));
+      if (event.name === "media/encode") assert.equal(JSON.parse(values.get(event.id)!).submission, "pending");
+      events.push(event);
+    }
     return Response.json(init?.body ? { ids: ["event-1"] } : { data: [{ status: "Completed" }] });
   };
   try {
@@ -79,5 +83,20 @@ test("Worker enqueues jobs, authenticates callbacks, deduplicates and proxies st
     assert.equal(events.length, 2);
     const status = await worker.fetch(new Request(`https://worker/jobs/${jobId}`, { headers: { Authorization: "Bearer test-only" } }), env);
     assert.deepEqual(await status.json(), { data: [{ status: "Completed" }] });
+  } finally { globalThis.fetch = oldFetch; }
+});
+test("Worker records failed enqueue before returning an error", async () => {
+  const values = new Map<string, string>();
+  const env = { INNGEST_EVENT_URL: "http://localhost", INNGEST_API_URL: "http://localhost", FRONTDOOR_TOKEN: "test-only", CALLBACK_SECRET: "test-only",
+    JOBS: { get: async (id: string) => values.get(id) ?? null, put: async (id: string, value: string) => { values.set(id, value); } } };
+  const oldFetch = globalThis.fetch;
+  globalThis.fetch = async () => { throw new Error("offline"); };
+  try {
+    const response = await worker.fetch(new Request("https://worker/jobs/encode", { method: "POST", headers: { Authorization: "Bearer test-only" }, body: "{}" }), env);
+    assert.equal(response.status, 502);
+    const { jobId } = await response.json() as { jobId: string };
+    assert.equal(JSON.parse(values.get(jobId)!).submission, "failed");
+    const status = await worker.fetch(new Request(`https://worker/jobs/${jobId}`, { headers: { Authorization: "Bearer test-only" } }), env);
+    assert.deepEqual(await status.json(), { data: [{ status: "Failed" }] });
   } finally { globalThis.fetch = oldFetch; }
 });

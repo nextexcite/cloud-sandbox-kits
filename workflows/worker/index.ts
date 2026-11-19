@@ -12,7 +12,7 @@ interface Env {
   DOCKER_ID?: string;
   DOCKER_CLOUD_SANDBOX_TOKEN?: string;
 }
-interface Job { ids: string[]; callbackAccepted: boolean }
+interface Job { ids: string[]; callbackAccepted: boolean; submission?: "pending" | "submitted" | "failed" }
 async function getJob(env: Env, id: string): Promise<Job | undefined> {
   const value = await env.JOBS.get(id);
   return value ? JSON.parse(value) : undefined;
@@ -82,13 +82,22 @@ export default {
         catch { return Response.json({ error: "Invalid job body" }, { status: 400 }); }
         const jobId = crypto.randomUUID();
         const kind = url.pathname.split("/")[2];
-        const sent = await emit(env, { id: jobId, name: kind === "browser" ? "browser/capture" : `media/${kind}`, data: { ...data, jobId } });
-        await env.JOBS.put(jobId, JSON.stringify({ ids: sent.ids, callbackAccepted: false }), { expirationTtl: 86400 });
+        const pending: Job = { ids: [], callbackAccepted: false, submission: "pending" };
+        await env.JOBS.put(jobId, JSON.stringify(pending), { expirationTtl: 86400 });
+        let sent;
+        try { sent = await emit(env, { id: jobId, name: kind === "browser" ? "browser/capture" : `media/${kind}`, data: { ...data, jobId } }); }
+        catch {
+          await env.JOBS.put(jobId, JSON.stringify({ ...pending, submission: "failed" }), { expirationTtl: 86400 });
+          return Response.json({ error: "Inngest event submission failed", jobId }, { status: 502 });
+        }
+        const job = await getJob(env, jobId) ?? pending;
+        await env.JOBS.put(jobId, JSON.stringify({ ...job, ids: sent.ids, submission: "submitted" }), { expirationTtl: 86400 });
         return Response.json({ jobId, inngestEventIds: sent.ids }, { status: 202 });
       }
       if (request.method === "GET" && url.pathname.startsWith("/jobs/")) {
         const job = await getJob(env, url.pathname.slice(6));
         if (!job) return new Response("Unknown job", { status: 404 });
+        if (!job.ids.length) return Response.json({ data: job.submission === "failed" ? [{ status: "Failed" }] : [] });
         const headers = env.INNGEST_SIGNING_KEY ? { Authorization: `Bearer ${env.INNGEST_SIGNING_KEY}` } : undefined;
         const response = await fetch(`${env.INNGEST_API_URL}/v1/events/${job.ids[0]}/runs`, { headers });
         return new Response(response.body, { status: response.status, headers: { "Content-Type": "application/json" } });
