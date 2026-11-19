@@ -19,6 +19,8 @@ class BrowserTests(unittest.TestCase):
             self.assertIn(expected, recipe)
         self.assertEqual((kit / 'browser.yaml').read_text().splitlines()[0],
                          (ROOT / 'kits/v3/amp/amp.yaml').read_text().splitlines()[0])
+        policy = (kit / 'browser.yaml').read_text().split('runtime:\n', 1)[1].split('  - type:', 1)[0]
+        self.assertEqual(policy.strip(), "allow:\n          - '*'")
 
     @unittest.skipUnless(shutil.which('node'), 'Node needed for smoke control-flow tests')
     def test_smoke_success_empty_and_error(self):
@@ -29,7 +31,7 @@ class BrowserTests(unittest.TestCase):
 import os, pathlib, sys
 args = sys.argv[3:]
 if args[0] == 'snapshot':
-    print('Example Domain 中文 日本語 한국어' if os.environ['CASE'] != 'empty' else '')
+    print('Example Domain Wikipedia ウィキペディア 中文 日本語 한국어' if os.environ['CASE'] != 'empty' else '')
 if args[0] == 'screenshot':
     pathlib.Path(args[1]).write_bytes(bytes.fromhex('89504e470d0a1a0a'))
 if args[0] == 'download':
@@ -48,6 +50,9 @@ if os.environ['CASE'] == 'error' and args[0] == 'open':
                     if case == 'success':
                         self.assertEqual(result.returncode, 0, result.stderr)
                         self.assertIn('PASS:', result.stdout)
+                        for name in ['wikipedia', 'wikipedia-ja']:
+                            self.assertTrue((directory / case / f'{name}.png').is_file())
+                            self.assertTrue((directory / case / f'{name}-snapshot.txt').is_file())
                     else:
                         self.assertNotEqual(result.returncode, 0)
                         self.assertNotIn('PASS:', result.stdout)

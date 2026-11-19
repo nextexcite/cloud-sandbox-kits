@@ -100,10 +100,12 @@ docker run --rm --entrypoint browser-smoke sbx-agent-kits/browser:ci
 ```
 
 The in-image `browser-smoke [new-output-directory]` fails on command, snapshot,
-PNG or exact downloaded-byte mismatch. It browses example.com over HTTPS, then
+PNG or exact downloaded-byte mismatch. It browses example.com and English/Japanese
+Wikipedia over HTTPS (open, snapshot, screenshot for each), then
 serves a local CJK/emoji page and attachment to test fonts and a real browser
 HTTP download without relying on an external download site. It writes
-`example.png`, `cjk.png`, `snapshot.txt`, and `download.txt` (default directory:
+`example.png`, `wikipedia.png`, `wikipedia-ja.png`, two Wikipedia snapshot text
+files, `cjk.png`, `snapshot.txt`, and `download.txt` (default directory:
 `/home/agent/workspace/browser-smoke`). Visual font rendering still needs human
 inspection; text in a snapshot alone does not prove glyph rendering.
 
@@ -116,7 +118,6 @@ Create from Git; replace
 DOCKER_SANDBOXES_KIT_ALLOWED_SOURCES='["docker.io/","dhi.io/","github.com/nextexcite/"]' \
   sbx --cloud create --name browser-trial --ttl 2h \
   'git+https://github.com/nextexcite/sbx-agent-kits.git#ref=BRANCH&dir=kits/v3/browser'
-sbx --cloud policy init allow-all --sandbox browser-trial
 sbx --cloud exec browser-trial browser-smoke
 sbx --cloud cp browser-trial:/home/agent/workspace/browser-smoke ./browser-smoke-artifacts
 sbx --cloud rm --force browser-trial
@@ -125,11 +126,24 @@ sbx --cloud template ls
 sbx --cloud template rm --force TEMPLATE_NAME
 ```
 
-The manifest initially allows only example.com:443. General-purpose browsing
-needs an explicit per-sandbox policy: allow-all is convenient for a disposable
-trial but permits arbitrary outbound traffic. Prefer deny-all plus specific
-domains for sensitive tasks, including redirects and CDNs. Do not change shared
-account defaults. Git Kit creation builds with local Buildx and uploads a cloud
+The manifest's `com.docker.sandbox/network-policy@1` capability declares
+`config.runtime.allow: ['*']`, granting open outbound access by default. No
+per-sandbox allow-all command is needed. This permits arbitrary outbound traffic;
+lock down a sandbox before browsing sensitive data or untrusted sites:
+
+```sh
+# Replace this sandbox's open policy with a restricted baseline:
+sbx --cloud policy init deny-all --sandbox browser-trial
+sbx --cloud policy allow network en.wikipedia.org:443 --sandbox browser-trial
+sbx --cloud policy allow network ja.wikipedia.org:443 --sandbox browser-trial
+sbx --cloud policy ls browser-trial
+# Alternative: broader development allowlist, still not unrestricted browsing:
+sbx --cloud policy init balanced --sandbox browser-trial
+```
+
+Include required redirects and CDNs in a narrow allowlist, and inspect the policy
+to ensure no `*` grant remains after replacement. These commands change only the
+named sandbox, not shared account defaults. Git Kit creation builds with local Buildx and uploads a cloud
 template; cold creation can take minutes. Shell-style entrypoint is suitable
 for `sbx --cloud exec NAME agent-browser ...`. `sync-kits.sh` intentionally
 skips Browser: its single smoke script is kit-local and it has no shared coding

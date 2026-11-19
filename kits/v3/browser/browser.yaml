@@ -17,7 +17,7 @@ capabilities:
     config:
       runtime:
         allow:
-          - example.com:443
+          - '*'
   - type: com.docker.sandbox/agent-context@1
     config:
       filename: AGENTS.md

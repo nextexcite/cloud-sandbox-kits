@@ -39,6 +39,17 @@ try {
   await browser('open', 'https://example.com');
   assert.match(await browser('snapshot'), /Example Domain|documentation examples/);
   await browser('screenshot', `${output}/example.png`);
+  for (const [name, url, expected] of [
+    ['wikipedia', 'https://en.wikipedia.org', /Wikipedia/],
+    ['wikipedia-ja', 'https://ja.wikipedia.org', /ウィキペディア/],
+  ]) {
+    await browser('open', url);
+    const snapshot = await browser('snapshot');
+    assert.match(snapshot, expected);
+    writeFileSync(`${output}/${name}-snapshot.txt`, snapshot);
+    await browser('screenshot', `${output}/${name}.png`);
+    console.log(`PASS: open, snapshot, screenshot ${url}`);
+  }
   await browser('open', `http://127.0.0.1:${server.address().port}`);
   const snapshot = await browser('snapshot');
   assert.match(snapshot, /中文 日本語 한국어/);
@@ -46,7 +57,7 @@ try {
   await browser('screenshot', `${output}/cjk.png`);
   await browser('download', 'a', `${output}/download.txt`);
   assert.equal(readFileSync(`${output}/download.txt`, 'utf8'), payload);
-  for (const name of ['example.png', 'cjk.png']) {
+  for (const name of ['example.png', 'wikipedia.png', 'wikipedia-ja.png', 'cjk.png']) {
     assert.equal(readFileSync(`${output}/${name}`).subarray(0, 8).toString('hex'), '89504e470d0a1a0a');
   }
   console.log('PASS: UID 1000, Node LTS, HTTPS open, snapshot, CJK screenshot, browser download (exact bytes)');

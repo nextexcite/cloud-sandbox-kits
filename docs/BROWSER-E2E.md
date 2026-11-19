@@ -1,10 +1,37 @@
 # Browser Kit v3 Cloud acceptance
 
+## Current default and per-sandbox lockdown
+
+Browser now declares `config.runtime.allow: ['*']` under
+`com.docker.sandbox/network-policy@1`: general-purpose outbound browsing is open
+without a client policy override. The
+[Kit v3 capability specification](https://github.com/docker/sandbox-kit-spec/blob/main/docs/spec/capabilities/com.docker.sandbox/network-policy@1.md)
+defines bare `*` and `**` as all egress; its builder example uses `**`.
+The contributed Shell Kit was also inspected: its narrower explicit domain list
+illustrates that a Kit adds declared grants rather than relying on host defaults.
+
+Open egress can exfiltrate data. Replace the policy on a specific sandbox before
+sensitive work; do not change account-wide defaults:
+
+```sh
+sbx --cloud policy init deny-all --sandbox NAME
+sbx --cloud policy allow network en.wikipedia.org:443 --sandbox NAME
+sbx --cloud policy allow network ja.wikipedia.org:443 --sandbox NAME
+sbx --cloud policy ls NAME
+# Or use the broader development baseline instead of a hand-picked allowlist:
+sbx --cloud policy init balanced --sandbox NAME
+```
+
+Check that the replacement policy has no wildcard allow. Add required redirect
+and CDN hosts explicitly; deny rules take precedence over allows.
+
+## Initial trial (before open-egress default)
+
 Measured 2026-11-19, Linux amd64 client, sbx v0.54.0, branch
 `devin/1795087544-browser-kit`, image inputs at commit `bc94e40`.
 This is a single smoke run, not a benchmark or an anti-bot compatibility claim.
 
-## Results
+### Results
 
 The committed Git-source Browser Kit built, uploaded, created and applied in
 94.37 seconds total, using the local Docker Buildx cache from the preceding
@@ -44,7 +71,7 @@ The CJK screenshot was visually inspected: Chinese, Japanese and Korean glyphs
 and a color emoji rendered, with no missing-glyph boxes. Local screenshot also
 passed visual inspection. Artifacts/logs remain on the trial client, not in Git.
 
-## Platform and build gotchas
+### Platform and build gotchas
 
 - Git sources require the scoped client environment override
   `DOCKER_SANDBOXES_KIT_ALLOWED_SOURCES='["docker.io/","dhi.io/","github.com/nextexcite/"]'`.
@@ -65,7 +92,7 @@ passed visual inspection. Artifacts/logs remain on the trial client, not in Git.
   protected by filesystem permissions. Credentials were bound only for login,
   never passed into the image or repository.
 
-## Cleanup
+### Cleanup
 
 Only the trial sandbox `browser-kit-1795087544`
 (`sbx_001m7ss51f4gv8gx4h3k941w1qa`) and its auto-created template
