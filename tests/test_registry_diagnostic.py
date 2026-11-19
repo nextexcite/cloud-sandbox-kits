@@ -195,6 +195,42 @@ class RegistryDiagnosticTests(unittest.TestCase):
                         except ProcessLookupError:
                             pass
 
+    def test_cancellation_during_process_creation_cleans_child_group(self):
+        wrapper = ROOT / "scripts/probe-with-timeout.py"
+        for signum in (signal.SIGINT, signal.SIGTERM):
+            with self.subTest(signal=signum), tempfile.TemporaryDirectory() as directory:
+                pid_file = Path(directory) / "pid"
+                harness = (
+                    'import os, runpy, signal, subprocess, sys\n'
+                    'original = subprocess.Popen\n'
+                    'def launch(*args, **kwargs):\n'
+                    '    child = original(*args, **kwargs)\n'
+                    f'    open({str(pid_file)!r}, "w").write(str(child.pid))\n'
+                    f'    os.kill(os.getpid(), {int(signum)})\n'
+                    '    return child\n'
+                    'subprocess.Popen = launch\n'
+                    f'sys.argv = [{str(wrapper)!r}, "60", sys.executable, "-c", "import time; time.sleep(30)"]\n'
+                    f'runpy.run_path({str(wrapper)!r}, run_name="__main__")\n'
+                )
+                pid = None
+                try:
+                    result = subprocess.run([sys.executable, "-c", harness],
+                                            capture_output=True, timeout=4)
+                    self.assertTrue(pid_file.exists(), "child did not start")
+                    pid = int(pid_file.read_text())
+                    self.assertEqual(result.returncode, 128 + signum)
+                    self.assertEqual((result.stdout, result.stderr), (b"", b""))
+                    with self.assertRaises(ProcessLookupError):
+                        os.killpg(pid, 0)
+                finally:
+                    if pid is None and pid_file.exists():
+                        pid = int(pid_file.read_text())
+                    if pid is not None:
+                        try:
+                            os.killpg(pid, signal.SIGKILL)
+                        except ProcessLookupError:
+                            pass
+
     def test_interrupt_exit_codes_abort_remaining_comparison_probes(self):
         args = ["--compare", "registry.example/fixture/private:test",
                 "registry.example/fixture/public:test"]

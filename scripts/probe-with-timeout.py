@@ -34,12 +34,13 @@ def main():
     code = 125
     cancellation = None
     cleaning = False
+    creating = True
 
     def interrupted(signum, _frame):
         nonlocal cancellation
         if cancellation is None:
             cancellation = signum
-        if not cleaning:
+        if not creating and not cleaning:
             raise Interrupted(signum)
 
     signal.signal(signal.SIGTERM, interrupted)
@@ -49,6 +50,9 @@ def main():
             sys.argv[2:], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL, start_new_session=True,
         )
+        creating = False
+        if cancellation is not None:
+            raise Interrupted(cancellation)
         try:
             code = process.wait(timeout=seconds)
             if code < 0:
