@@ -82,7 +82,7 @@ body = json.dumps(callback, separators=(",", ":")).encode()
 signature = hmac.new(config["callbackKey"].encode(), body, hashlib.sha256).hexdigest()
 for attempt in range(8):
     try:
-        request = urllib.request.Request(config["callbackUrl"], data=body, headers={"Content-Type": "application/json", "x-sandbox-signature": signature})
+        request = urllib.request.Request(config["callbackUrl"], data=body, headers={"Content-Type": "application/json", "x-sandbox-signature": signature, "x-sandbox-job-id": config["jobId"]})
         with urllib.request.urlopen(request, timeout=30) as response:
             if response.status == 200:
                 Path("/root/callback-delivered").touch()

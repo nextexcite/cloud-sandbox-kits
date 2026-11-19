@@ -76,9 +76,12 @@ test("Worker enqueues jobs, authenticates callbacks, deduplicates and proxies st
     const body = JSON.stringify({ jobId, status: "completed", result: { outputs: [] } });
     const perJobKey = createHmac("sha256", env.CALLBACK_SECRET).update(jobId).digest("hex");
     const signature = createHmac("sha256", perJobKey).update(body).digest("hex");
-    const callback = (payload = body) => worker.fetch(new Request("https://worker/callbacks/sandbox", { method: "POST", headers: { "x-sandbox-signature": signature }, body: payload }), env);
+    const callback = (payload: BodyInit = body, signed = signature) => worker.fetch(new Request("https://worker/callbacks/sandbox", { method: "POST", headers: { "x-sandbox-signature": signed, "x-sandbox-job-id": jobId }, body: payload }), env);
     assert.equal((await callback(body + " ")).status, 401);
     assert.equal((await callback()).status, 200);
+    const raw = Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(body)]);
+    assert.equal((await callback(raw, createHmac("sha256", perJobKey).update(raw).digest("hex"))).status, 200);
+    assert.equal((await callback(Buffer.from([0xff]), createHmac("sha256", perJobKey).update(Buffer.from([0xff])).digest("hex"))).status, 400);
     assert.equal((await callback()).status, 200);
     assert.equal(events.length, 2);
     const status = await worker.fetch(new Request(`https://worker/jobs/${jobId}`, { headers: { Authorization: "Bearer test-only" } }), env);

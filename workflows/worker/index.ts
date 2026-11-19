@@ -29,22 +29,26 @@ async function emit(env: Env, event: object) {
   if (!response.ok) throw new Error("Inngest event submission failed");
   return response.json() as Promise<{ ids: string[] }>;
 }
-async function readBody(request: Request): Promise<string | undefined> {
-  if (!request.body) return "";
+async function readBody(request: Request): Promise<ArrayBuffer | undefined> {
+  if (!request.body) return new ArrayBuffer(0);
   const reader = request.body.getReader();
-  const decoder = new TextDecoder();
   let bytes = 0;
-  let text = "";
+  const chunks: Uint8Array[] = [];
   try {
     for (;;) {
       const { value, done } = await reader.read();
-      if (done) return text + decoder.decode();
+      if (done) {
+        const body = new Uint8Array(bytes);
+        let offset = 0;
+        for (const chunk of chunks) { body.set(chunk, offset); offset += chunk.byteLength; }
+        return body.buffer;
+      }
       bytes += value.byteLength;
       if (bytes > 65536) {
         await reader.cancel();
         return undefined;
       }
-      text += decoder.decode(value, { stream: true });
+      chunks.push(value);
     }
   } finally { reader.releaseLock(); }
 }
@@ -58,13 +62,16 @@ export default {
       if (request.method === "POST" && url.pathname === "/callbacks/sandbox") {
         const raw = await readBody(request);
         if (raw === undefined) return new Response("Body too large", { status: 413 });
-        const data = JSON.parse(raw);
-        if (typeof data.jobId !== "string" || !["completed", "failed", "needs_cookies"].includes(data.status) || !data.result || typeof data.result !== "object") return new Response("Invalid callback", { status: 400 });
         const signature = request.headers.get("x-sandbox-signature") ?? "";
-        if (!/^[a-f0-9]{64}$/.test(signature)) return new Response("Invalid signature", { status: 401 });
-        const perJobKey = hex(await crypto.subtle.sign("HMAC", await key(env.CALLBACK_SECRET), encoder.encode(data.jobId)));
+        const jobId = request.headers.get("x-sandbox-job-id");
+        if (!jobId || !/^[a-f0-9]{64}$/.test(signature)) return new Response("Invalid signature", { status: 401 });
+        const perJobKey = hex(await crypto.subtle.sign("HMAC", await key(env.CALLBACK_SECRET), encoder.encode(jobId)));
         const bytes = Uint8Array.from(signature.match(/../g)!, (s) => parseInt(s, 16));
-        if (!await crypto.subtle.verify("HMAC", await key(perJobKey), bytes, encoder.encode(raw))) return new Response("Invalid signature", { status: 401 });
+        if (!await crypto.subtle.verify("HMAC", await key(perJobKey), bytes, raw)) return new Response("Invalid signature", { status: 401 });
+        let data;
+        try { data = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(raw)); }
+        catch { return new Response("Invalid callback", { status: 400 }); }
+        if (data.jobId !== jobId || !["completed", "failed", "needs_cookies"].includes(data.status) || !data.result || typeof data.result !== "object") return new Response("Invalid callback", { status: 400 });
         const job = await getJob(env, data.jobId);
         if (!job) return new Response("Unknown job", { status: 404 });
         if (job.callbackAccepted) return Response.json({ duplicate: true });
@@ -78,7 +85,7 @@ export default {
         const raw = await readBody(request);
         if (raw === undefined) return new Response("Body too large", { status: 413 });
         let data;
-        try { data = validateJob(url.pathname.split("/")[2], JSON.parse(raw)); }
+        try { data = validateJob(url.pathname.split("/")[2], JSON.parse(new TextDecoder().decode(raw))); }
         catch { return Response.json({ error: "Invalid job body" }, { status: 400 }); }
         const jobId = crypto.randomUUID();
         const kind = url.pathname.split("/")[2];
