@@ -64,6 +64,13 @@ class MediaTests(unittest.TestCase):
                 media.fetch(['https://example.com/video', 'out.wav'])
             self.assertIn('bot-checks cloud IPs', errors.getvalue())
 
+    def test_fetch_help_template(self):
+        with contextlib.redirect_stdout(io.StringIO()) as output:
+            with self.assertRaises(SystemExit) as result:
+                media.fetch(['--help'])
+        self.assertEqual(result.exception.code, 0)
+        self.assertIn('audio.%(ext)s', output.getvalue())
+
     def test_srt_timestamp(self):
         self.assertEqual(media.timestamp(3661.125), '01:01:01,125')
 

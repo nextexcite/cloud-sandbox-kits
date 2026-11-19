@@ -67,7 +67,7 @@ def transcribe(argv):
 def fetch(argv):
     parser = argparse.ArgumentParser(description='Fetch best audio with yt-dlp; YouTube may require cookies')
     parser.add_argument('url')
-    parser.add_argument('output', help='Output filename template, e.g. audio.%(ext)s')
+    parser.add_argument('output', help='Output filename template, e.g. audio.%%(ext)s')
     parser.add_argument('--format', choices=['wav', 'm4a'], default='wav')
     parser.add_argument('--cookies', default=os.environ.get('YT_COOKIES_FILE'))
     parser.add_argument('--proxy', default=os.environ.get('YT_PROXY'))
