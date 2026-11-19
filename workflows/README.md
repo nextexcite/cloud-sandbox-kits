@@ -9,6 +9,7 @@ npm ci
 # Neither value is passed to sandbox commands or saved by this application.
 npm run check
 npm test
+python3 -m unittest discover -s src -p test_media_runner.py
 SBX_BIN=/absolute/path/to/sbx CLOUDFLARED_BIN=/absolute/path/to/cloudflared npm run e2e
 ```
 
@@ -19,12 +20,23 @@ official GitHub release (`cloudflared-linux-amd64` for this VM); no Cloudflare
 account is required. The harness refuses occupied ports, starts Express on :3000,
 Inngest dev on :8288, Wrangler/workerd on :8787, and a cloudflared quick tunnel.
 It submits browser, six-second H.264+HEVC encode, 2m41s Gettysburg Address audio
-transcription, and YouTube transcription jobs through the public Worker URL.
+transcription, and YouTube transcription jobs through the public Worker URL,
+plus a bad-source encode that must show `Failed` through `GET /jobs/:id`.
+`YT_COOKIES` and `YT_PROXY` are explicitly removed from child environments for
+this test, and the YouTube result must be exactly `needs_cookies`.
 It polls that same Worker's status API and reads final outputs from Inngest's
-GraphQL API. It stops its child process groups and deletes only owned sandbox
-names on completion/error. Logs, PNGs, MP4s and JSON results are gitignored in
+GraphQL API. It prints and saves the sandbox listing **before** its fallback
+cleanup sweep and fails if a workflow sandbox remains at that point. It compares
+pre-existing sandbox IDs/statuses before and after, stops its child process groups,
+and sweeps only names it created. Sanitized `out/e2e-results.json` includes the
+commit, model, timing statistics, output SHA-256s and pre-sweep listing, not bearer
+tokens, callback secrets, tunnel credentials, source URLs or full transcripts.
+Logs, PNGs, MP4s and JSON results are gitignored in
 `out/`. Only the authenticated Worker is tunneled; never expose the unauthenticated
 Inngest/Express dev services themselves.
+
+`npm run check` runs TypeScript's `tsc --noEmit`; it does not run tests. TypeScript
+tests run with `npm test`; Python runner regressions use the unittest command above.
 
 On this VM, the system DNS resolver initially cached NXDOMAIN for new quick-tunnel
 names. `TUNNEL_DNS_SERVER=1.1.1.1` optionally resolves only tunnel hosts using that
@@ -136,7 +148,8 @@ those variables consistently in the Worker and Node app, and set the Node app's
 
 Jobs/status require `Authorization: Bearer <FRONTDOOR_TOKEN>`. Job submission
 returns `{jobId, inngestEventIds}`. The registry is in Workers KV with one-day
-expiry; Wrangler emulates and persists it locally. The placeholder namespace ID
+expiry; the pending record is written before event submission, and a failed send
+is marked failed. Wrangler emulates and persists it locally. The placeholder namespace ID
 in the config is for local use, not an actual Cloudflare resource. Provision KV
 before a real deployment. Set `INNGEST_EVENT_URL=https://inn.gs` and
 `INNGEST_EVENT_KEY` for cloud event ingestion, and the appropriate API URL/signing
@@ -151,13 +164,19 @@ up to 25 minutes for `sandbox/job.finished`, matched on `data.jobId`.
 
 The sandbox gets a per-job HMAC key derived from the shared startup secret, never
 the shared secret itself. It signs exact callback JSON bytes with SHA-256 in
-`x-sandbox-signature`. The Worker verifies with Web Crypto, enqueues a deterministic
+`x-sandbox-signature`, with `x-sandbox-job-id` selecting the per-job key. The Worker
+reads at most 64 KiB regardless of Content-Length, verifies the exact raw bytes
+with Web Crypto before decoding JSON, then checks that the signed job ID matches
+the header. It enqueues a deterministic
 callback event ID, and marks the callback accepted. Retries are idempotent within
 Inngest's event-deduplication window; KV is not an atomic exactly-once lock.
 Callbacks retry with bounded exponential backoff. The sandbox egress policy
 explicitly includes `*.trycloudflare.com` alongside the reference's allow-all.
 
 Remote result JSON and encode SHA-256 values are read after the callback. Small
+callbacks contain only job ID, status and allowlisted numeric timing/duration
+stats; full transcripts, output records and failure details stay in the artifact.
+Small
 MP4 outputs are copied back and checksummed locally; outputs above 5 MB produce
 a 256 KiB sample instead. SDK file reads default to only 1 MiB; the adapter now
 explicitly allows up to 16 MiB per read. Success, workload failure and timeout run cleanup, with
@@ -173,3 +192,17 @@ unrelated download errors produce `failed`. CPU faster-whisper uses ffmpeg-decod
 float32 PCM to avoid PyAV compatibility issues observed in the initial trials.
 The harness defaults to a public LibriVox Gettysburg Address MP3; `SPEECH_URL` may
 override it with another speech recording at least two minutes long.
+
+## Security scope
+
+The bearer token is the only gate on an arbitrary-URL fetcher with `*` sandbox
+egress. This is not a public multi-tenant service or an SSRF-safe URL gateway;
+keep the token private and do not expose the unauthenticated local dev servers.
+The front-door Worker has no Docker credentials.
+
+The per-job HMAC key and any supplied YouTube cookies live in the sandbox until
+deletion. `YT_PROXY` appears in yt-dlp's process argv and may contain proxy
+credentials; it is not returned or intentionally logged. Only use trusted jobs
+and sandbox code. `withSandbox` guarantees a **delete attempt**, not successful
+deletion under every network/host failure. TTL deletion is the backstop, with
+explicit cleanup/onFailure reconciliation providing the normal path.
