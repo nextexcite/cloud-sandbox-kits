@@ -1,9 +1,9 @@
 # Docker Sandboxes agent kits
 
-Reference source for an Amp development environment in two OCI formats:
+Development environments for Amp, Claude Code and Codex:
 
-- **v2:** a Kit descriptor referring to a separately built OCI runtime image.
-- **v3:** a self-contained workload build context using the pinned Kit frontend.
+- **v2 (Amp):** a descriptor referring to a separately built OCI runtime image.
+- **v3 (all three):** self-contained workload directories using the pinned Kit frontend.
 
 The v2 descriptor is not a runnable container image. The runtime Dockerfile
 and v3 workload image are ordinary OCI images, but Docker Sandboxes lifecycle,
@@ -13,7 +13,7 @@ network policy and credential injection require the corresponding runtime.
 
 This reference includes templates, a shared toolchain installer, context staging
 and offline structural tests. CI also builds and smoke-tests the public-base
-v3 image. It includes no deployment, registry publishing,
+v3 images in an Amp/Claude/Codex matrix. It includes no deployment, registry publishing,
 account configuration, cloud resource management or credential workflows.
 Neither the tests nor GitHub Actions create a sandbox or publish an image.
 Agent permission bypass is not enabled by these examples.
@@ -27,11 +27,13 @@ Do not put credentials in source, build arguments, image layers or build logs.
 
 ## Offline checks and staging
 
-Requires Python 3 and Bash. No service credentials or container daemon needed:
+Requires Python 3.11+ and Bash. No service credentials or container daemon needed:
 
     python3 -m unittest discover -s tests -v
     bash scripts/check.sh
     bash scripts/stage-v3.sh
+    bash scripts/stage-v3.sh claude dist/v3-claude
+    bash scripts/stage-v3.sh codex dist/v3-codex
     IMAGE_REFERENCE=example.invalid/agent/runtime:local bash scripts/render-v2.sh
 
 The image reference above is deliberately nonresolving. Replace it privately
@@ -40,11 +42,40 @@ contexts live in `dist/` and are not committed.
 
 ## Run from GitHub
 
-With a Kit v3-capable `sbx`, use the committed self-contained Kit directory:
+With a Kit v3-capable `sbx`, choose one self-contained workload:
 
 ```sh
 sbx run --kit "git+https://github.com/nextexcite/sbx-agent-kits.git#dir=kits/v3/amp" .
+sbx run --kit "git+https://github.com/nextexcite/sbx-agent-kits.git#dir=kits/v3/claude" .
+sbx run --kit "git+https://github.com/nextexcite/sbx-agent-kits.git#dir=kits/v3/codex" .
 ```
+
+| Kit | Entrypoint | Pinned agent version | Credential service / API-key name |
+|---|---|---|---|
+| Amp | `amp` | Floats | `amp` / `AMP_API_KEY` |
+| Claude Code | `claude` | `2.1.316` | `anthropic` / `ANTHROPIC_API_KEY` |
+| Codex | `codex` | `0.166.0` | `openai` / `OPENAI_API_KEY` |
+
+All credential declarations are optional: a missing binding does not block
+Kit resolution. Claude and Codex also accept host-managed subscription OAuth
+under the same service name. Claude's upstream instructions use
+`sbx secret set anthropic` to bind the host credential. Codex's upstream
+README describes binding `OPENAI_API_KEY` or a ChatGPT login to the host's
+`openai` credential; use your installed `sbx` credential workflow. These
+variable names declare the credential contract, not automatic host-env
+injection. Do not bake secrets into builds or Kit arguments.
+
+References: [Claude credentials](https://github.com/docker/sbx-kits-contrib/tree/main/claude#prerequisites)
+and [Codex credentials](https://github.com/docker/sbx-kits-contrib/tree/main/codex#prerequisites).
+Inside the sandbox, auth files may contain proxy sentinels instead of real
+tokens. With no host binding, Claude and Codex retain their own login flow.
+Managed Codex modes force API login to preserve the runtime's auth seed.
+
+Unlike the upstream examples, these kits keep each agent's default approval
+behavior and filesystem sandbox. Onboarding/workspace trust seeds do not
+disable approval prompts. Desktop-app integrations and session-list helpers
+are intentionally omitted. Claude uses `CLAUDE.md` and `.claude/skills`;
+Codex uses `AGENTS.md` and `.agents/skills` at its home discovery locations.
 
 To override the base, add `--kit-arg base_image=<image-reference>`.
 For example, users with private registry access can select
@@ -52,6 +83,7 @@ For example, users with private registry access can select
 The `base_image` Kit argument maps to the Dockerfile's `BASE_IMAGE` build
 argument. Overrides must provide an apt-based environment with an `agent`
 user at UID 1000, home `/home/agent`, and passwordless sudo on Ubuntu.
+Claude and Codex expose `--kit-arg version=<release>` for the agent pin.
 
 ## Local image builds
 
@@ -62,6 +94,11 @@ docker buildx build -f kits/v3/amp/amp.yaml kits/v3/amp -t sbx-agent-kits/amp:lo
 docker run --rm --entrypoint sbx-agent-kits-verify sbx-agent-kits/amp:local
 docker run --rm --entrypoint amp sbx-agent-kits/amp:local --version
 ```
+
+For Claude or Codex, replace `amp` in those commands with `claude` or
+`codex`, including the descriptor, directory, image tag and agent entrypoint.
+The native Claude binary and complete, checksum-verified Codex release package
+are installed as `agent`; neither uses a private agent base image.
 
 For a frontend base override, use `--build-arg base_image=<image-reference>`
 (the Kit argument name). For the plain v2 Dockerfile, use
@@ -79,22 +116,26 @@ for older runtimes. A runtime may skip the optional capability.
 ### Synchronizing build inputs
 
 `scripts/` at the repository root is the source of truth. The three build
-scripts are vendored into `kits/v3/amp/scripts/` so Git-source builds need
-nothing outside that directory. After editing a root script, run:
+scripts are vendored into every `kits/v3/*/scripts/` so Git-source builds need
+nothing outside their Kit directory. After editing a root script, run:
 
 ```sh
 bash scripts/sync-kits.sh
 bash scripts/sync-kits.sh --check
 ```
 
-Unit tests fail on missing or drifted copies. `stage-v3.sh` copies this
-self-contained directory to `dist/v3`; it does not silently repair drift.
+Unit tests fail on missing or drifted copies. `stage-v3.sh [kit] [destination]`
+copies a self-contained directory (default `amp` to `dist/v3`); it does not
+silently repair drift. Use separate destinations when staging different kits.
 
 ## Toolchains and limitations
 
-The shared installer includes Amp, mise, uv, fnm-managed Node LTS, pnpm, Pi,
+The shared installer includes mise, uv, fnm-managed Node LTS, pnpm, Pi,
 Bun, Deno, agent-browser, Chromium, skills and GitHub CLI. Debian uses distro
 Chromium; Ubuntu uses Playwright's browser download rather than a Snap launcher.
+Each image adds its selected agent. `sbx-agent-kits-verify` checks that image's
+agent via `SBX_AGENT_BINARY` (default `amp`); installation can check just the
+shared toolchains before installing Claude or Codex.
 The runtime is the `agent` user with UID 1000. The templates target Linux
 amd64/arm64; the CI image build and smoke test cover amd64 only.
 
@@ -104,9 +145,9 @@ review and pin these dependencies before production use. The installer runs
 upstream scripts during image builds, including the public CI build job.
 
 Public CI checks shell syntax, deterministic staging and structural safety on
-a standard GitHub-hosted runner, then builds the v3 Kit and runs its smoke test.
+a standard GitHub-hosted runner, then builds all three v3 Kits and runs their smoke tests.
 The smoke test checks executable discovery, UID and Node LTS; it does not
-exercise authenticated Amp calls or every installed tool. Passing CI does not
+exercise authenticated agent calls or every installed tool. Passing CI does not
 constitute full Kit conformance, sandbox lifecycle or cloud acceptance testing.
 
 Specifications: [Kit v3](https://github.com/docker/sandbox-kit-spec) and

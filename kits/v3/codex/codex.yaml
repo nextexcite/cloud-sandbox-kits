@@ -1,0 +1,111 @@
+# syntax=docker/sandbox-kit:3.0.0-m.13@sha256:922fd778877714b2353de978c4993b81fe2e1908793630205eedbd7229ca0a1f
+schemaVersion: "3"
+kind: workload
+displayName: Codex Factory v3
+description: Codex CLI with the shared development toolchains and default approvals.
+sourceUrl: https://github.com/nextexcite/sbx-agent-kits
+version: "${{ kit.args.version }}"
+args:
+  base_image:
+    default: docker.io/sbx/shell-docker-image:latest
+    description: Base image providing the agent user and sandbox environment
+    buildArg: BASE_IMAGE
+  version:
+    default: "0.166.0"
+    pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+    description: Codex CLI release to install
+    buildArg: CODEX_VERSION
+provides: ["codex@${{ kit.args.version }}"]
+capabilities:
+  - type: com.docker.sandbox/sbx@1
+  - type: com.docker.sandbox/dockerd@1
+    optional: true
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          - api.openai.com:443
+          - openai.com:443
+          - auth.openai.com:443
+          - chatgpt.com:443
+          - files.openai.com:443
+          - releases.openai.com:443
+          - api.github.com:443
+          - github.com:443
+          - release-assets.githubusercontent.com:443
+          - codeload.github.com:443
+          - archive.ubuntu.com:80
+          - security.ubuntu.com:80
+          - ports.ubuntu.com:80
+          - download.docker.com:443
+          - '*.githubusercontent.com:443'
+          - registry.npmjs.org:443
+          - nodejs.org:443
+          - pypi.org:443
+          - files.pythonhosted.org:443
+  - type: com.docker.sandbox/credential@1
+    name: OpenAI access
+    optional: true
+    config:
+      service: openai
+      phase: runtime
+      apiKey:
+        name: OPENAI_API_KEY
+        proxyManaged: true
+        inject:
+          - {domain: api.openai.com, header: Authorization, format: "Bearer %s"}
+          - {domain: openai.com, header: Authorization, format: "Bearer %s"}
+      oauth:
+        tokenEndpoint: {host: auth.openai.com, path: /oauth/token}
+        resourceHosts: [chatgpt.com]
+        sentinels:
+          accessToken: oai-oat01-proxy-managed
+          refreshToken: oai-ort01-proxy-managed
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      install:
+        - command: mkdir -p /home/agent/.codex /home/agent/.agents && chown agent:agent /home/agent/.codex /home/agent/.agents
+          user: "0"
+          description: Ensure agent-owned configuration directories after skills mounting
+        - command: |
+            set -e
+            python3 - <<'PY'
+            import json, os
+            from pathlib import Path
+            directory = Path("/home/agent/.codex")
+            mode = os.environ.get("SBX_CRED_OPENAI_MODE", "none")
+            config = ['mcp_oauth_credentials_store = "file"']
+            if mode in ("oauth", "apikey"):
+                config.append('forced_login_method = "api"')
+            if mode == "oauth":
+                config.extend([
+                    'model_provider = "sandboxd"',
+                    '',
+                    '[model_providers.sandboxd]',
+                    'name = "Sandbox Proxy"',
+                    'base_url = "https://chatgpt.com/backend-api/codex"',
+                    'experimental_bearer_token = "oai-oat01-proxy-managed"',
+                    'requires_openai_auth = false',
+                ])
+            workspace = os.environ.get("WORKSPACE_DIR") or "/home/agent/workspace"
+            config.extend(['', '[projects.' + json.dumps(workspace) + ']', 'trust_level = "trusted"'])
+            (directory / "config.toml").write_text("\n".join(config) + "\n")
+            auth = directory / "auth.json"
+            if mode in ("oauth", "apikey"):
+                auth.write_text(json.dumps({"OPENAI_API_KEY": "proxy-managed"}) + "\n")
+            else:
+                auth.unlink(missing_ok=True)
+            PY
+          user: agent
+          env: [SBX_CRED_OPENAI_MODE, WORKSPACE_DIR]
+          description: Seed Codex config and auth without changing approval or sandbox defaults
+  - type: com.docker.sandbox/agent-skills@1
+    optional: true
+    config:
+      path: /home/agent/.agents/skills
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      filename: AGENTS.md
+      directory: /home/agent/.codex
+      contentFile: ./codex-context.md
+dockerfile: codex.dockerfile
