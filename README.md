@@ -18,7 +18,7 @@ account configuration, cloud resource management or credential-provisioning work
 Neither the tests nor GitHub Actions create a sandbox or publish an image.
 Agent permission bypass is not enabled by these examples.
 
-The default base is public: `docker.io/sbx/shell-docker-image:latest`.
+The coding-agent default base is public: `docker.io/sbx/shell-docker-image:latest`.
 No registry login or `dhi.io` access is needed. The private
 `dhi.io/sbx-templates:shell-docker` remains an optional base override;
 its access and compatibility must be checked separately. CI never logs in
@@ -107,8 +107,9 @@ HTTP download without relying on an external download site. It writes
 `/home/agent/workspace/browser-smoke`). Visual font rendering still needs human
 inspection; text in a snapshot alone does not prove glyph rendering.
 
-For Cloud, install/login to `sbx` using the [Cloud trial guide](docs/cloud-sandboxes.md)
-(on the `pr4` ref if that document has not merged). Create from Git; replace
+For Cloud, install/login to `sbx` using the
+[official installation guide](https://docs.docker.com/ai/sandboxes/install/).
+Create from Git; replace
 `BRANCH` and use a unique sandbox name:
 
 ```sh
@@ -133,6 +134,7 @@ template; cold creation can take minutes. Shell-style entrypoint is suitable
 for `sbx --cloud exec NAME agent-browser ...`. `sync-kits.sh` intentionally
 skips Browser: its single smoke script is kit-local and it has no shared coding
 toolchains. CI builds and runs the browser smoke, without Cloud credentials.
+See [measured Cloud acceptance](docs/BROWSER-E2E.md) for the live trial and gotchas.
 
 ### Coding agents
 
