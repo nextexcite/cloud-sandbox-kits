@@ -177,6 +177,18 @@ sbx --cloud policy log trial
 sbx --cloud policy init allow-all --sandbox trial
 ```
 
+`policy init <mode> --sandbox` keeps existing allow rules, including rules a Kit
+declares: per the docs, a deny-all default still permits destinations allowed by
+sandbox or agent-kit rules. The deny-all test above ran on plain Ubuntu with no Kit
+rules. The repo's Amp Kit declares a runtime allowlist (ampcode, GitHub, npm, PyPI,
+...), so `policy init deny-all` does not lock an Amp sandbox down. Remove Kit rules
+explicitly, then confirm with `policy ls`:
+
+```sh
+sbx --cloud policy ls amp-trial
+sbx --cloud policy rm network --sandbox amp-trial --resource 'ampcode.com:443,*.ampcode.com:443'
+```
+
 File round trip passed byte-for-byte (`cmp`, `COPY_ROUNDTRIP_IDENTICAL`):
 
 ```sh
@@ -329,8 +341,7 @@ sbx --cloud cp trial:/root/example.png ./example.png
 For a genuinely bare image use `agent-browser install --with-deps`. apt archive
 downloads occasionally stalled; retry with bounded `Acquire::http::Timeout` and
 `Acquire::Retries`. Wait for apt to finish before starting another apt operation.
-Successful screenshot was copied out and visually inspected; evidence at
-`/home/ubuntu/sbx-discovery/example.png` on the trial client (not committed).
+Successful screenshot was copied out and visually inspected.
 
 ## Limits, pricing and references
 
@@ -352,8 +363,7 @@ Sources (documentation versus measured results distinguished above):
 - [Local/cloud differences](https://docs.docker.com/ai/sandboxes/cloud/local-vs-cloud/), [move snapshots](https://docs.docker.com/ai/sandboxes/cloud/move/)
 - [Kit v3 spec](https://github.com/docker/sandbox-kit-spec), [contributed kits](https://github.com/docker/sbx-kits-contrib)
 
-Raw probe logs/scripts are under `/home/ubuntu/sbx-discovery/` on the trial client.
-They are not committed and are not a portable benchmark harness.
+Raw probe logs and scripts were not committed; they are not a portable benchmark harness.
 
 ## Cleanup
 
@@ -367,5 +377,4 @@ sandboxes were intentionally preserved rather than deleting unrelated state, so
 final `sbx --cloud ls` is not empty; no remaining row is a trial resource.
 
 Final `sbx --cloud template ls`: `No cloud templates found`.
-Client-side logs, screenshot, CLI archive and Docker build cache remain;
-no repository changes except this document.
+No repository changes except this document.
