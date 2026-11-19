@@ -1,9 +1,9 @@
 # Docker Sandboxes agent kits
 
-Development environments for Amp, Claude Code and Codex:
+Development environments for Amp and Codex:
 
 - **v2 (Amp):** a descriptor referring to a separately built OCI runtime image.
-- **v3 (all three):** self-contained workload directories using the pinned Kit frontend.
+- **v3 (both):** self-contained workload directories using the pinned Kit frontend.
 
 The v2 descriptor is not a runnable container image. The runtime Dockerfile
 and v3 workload image are ordinary OCI images, but Docker Sandboxes lifecycle,
@@ -13,7 +13,7 @@ network policy and credential injection require the corresponding runtime.
 
 This reference includes templates, a shared toolchain installer, context staging
 and offline structural tests. CI also builds and smoke-tests the public-base
-v3 images in an Amp/Claude/Codex matrix. It includes no deployment, registry publishing,
+v3 images in an Amp/Codex matrix. It includes no deployment, registry publishing,
 account configuration, cloud resource management or credential workflows.
 Neither the tests nor GitHub Actions create a sandbox or publish an image.
 Agent permission bypass is not enabled by these examples.
@@ -32,7 +32,6 @@ Requires Python 3.11+ and Bash. No service credentials or container daemon neede
     python3 -m unittest discover -s tests -v
     bash scripts/check.sh
     bash scripts/stage-v3.sh
-    bash scripts/stage-v3.sh claude dist/v3-claude
     bash scripts/stage-v3.sh codex dist/v3-codex
     IMAGE_REFERENCE=example.invalid/agent/runtime:local bash scripts/render-v2.sh
 
@@ -46,35 +45,31 @@ With a Kit v3-capable `sbx`, choose one self-contained workload:
 
 ```sh
 sbx run --kit "git+https://github.com/nextexcite/sbx-agent-kits.git#dir=kits/v3/amp" .
-sbx run --kit "git+https://github.com/nextexcite/sbx-agent-kits.git#dir=kits/v3/claude" .
 sbx run --kit "git+https://github.com/nextexcite/sbx-agent-kits.git#dir=kits/v3/codex" .
 ```
 
 | Kit | Entrypoint | Pinned agent version | Credential service / API-key name |
 |---|---|---|---|
 | Amp | `amp` | Floats | `amp` / `AMP_API_KEY` |
-| Claude Code | `claude` | `2.1.316` | `anthropic` / `ANTHROPIC_API_KEY` |
 | Codex | `codex` | `0.166.0` | `openai` / `OPENAI_API_KEY` |
 
 All credential declarations are optional: a missing binding does not block
-Kit resolution. Claude and Codex also accept host-managed subscription OAuth
-under the same service name. Claude's upstream instructions use
-`sbx secret set anthropic` to bind the host credential. Codex's upstream
+Kit resolution. Codex also accepts host-managed subscription OAuth
+under the same service name. Codex's upstream
 README describes binding `OPENAI_API_KEY` or a ChatGPT login to the host's
 `openai` credential; use your installed `sbx` credential workflow. These
 variable names declare the credential contract, not automatic host-env
 injection. Do not bake secrets into builds or Kit arguments.
 
-References: [Claude credentials](https://github.com/docker/sbx-kits-contrib/tree/main/claude#prerequisites)
-and [Codex credentials](https://github.com/docker/sbx-kits-contrib/tree/main/codex#prerequisites).
+Reference: [Codex credentials](https://github.com/docker/sbx-kits-contrib/tree/main/codex#prerequisites).
 Inside the sandbox, auth files may contain proxy sentinels instead of real
-tokens. With no host binding, Claude and Codex retain their own login flow.
+tokens. With no host binding, Codex retains its own login flow.
 Managed Codex modes force API login to preserve the runtime's auth seed.
 
 Unlike the upstream examples, these kits keep each agent's default approval
-behavior and filesystem sandbox. Onboarding/workspace trust seeds do not
+behavior and filesystem sandbox. Workspace trust seeds do not
 disable approval prompts. Desktop-app integrations and session-list helpers
-are intentionally omitted. Claude uses `CLAUDE.md` and `.claude/skills`;
+are intentionally omitted.
 Codex uses `AGENTS.md` and `.agents/skills` at its home discovery locations.
 
 To override the base, add `--kit-arg base_image=<image-reference>`.
@@ -83,7 +78,7 @@ For example, users with private registry access can select
 The `base_image` Kit argument maps to the Dockerfile's `BASE_IMAGE` build
 argument. Overrides must provide an apt-based environment with an `agent`
 user at UID 1000, home `/home/agent`, and passwordless sudo on Ubuntu.
-Claude and Codex expose `--kit-arg version=<release>` for the agent pin.
+Codex exposes `--kit-arg version=<release>` for the agent pin.
 
 ## Local image builds
 
@@ -95,10 +90,10 @@ docker run --rm --entrypoint sbx-agent-kits-verify sbx-agent-kits/amp:local
 docker run --rm --entrypoint amp sbx-agent-kits/amp:local --version
 ```
 
-For Claude or Codex, replace `amp` in those commands with `claude` or
-`codex`, including the descriptor, directory, image tag and agent entrypoint.
-The native Claude binary and complete, checksum-verified Codex release package
-are installed as `agent`; neither uses a private agent base image.
+For Codex, replace `amp` in those commands with `codex`, including the
+descriptor, directory, image tag and agent entrypoint.
+The complete, checksum-verified Codex release package is installed as
+`agent`; it does not use a private agent base image.
 
 For a frontend base override, use `--build-arg base_image=<image-reference>`
 (the Kit argument name). For the plain v2 Dockerfile, use
@@ -135,7 +130,7 @@ Bun, Deno, agent-browser, Chromium, skills and GitHub CLI. Debian uses distro
 Chromium; Ubuntu uses Playwright's browser download rather than a Snap launcher.
 Each image adds its selected agent. `sbx-agent-kits-verify` checks that image's
 agent via `SBX_AGENT_BINARY` (default `amp`); installation can check just the
-shared toolchains before installing Claude or Codex.
+shared toolchains before installing Codex.
 The runtime is the `agent` user with UID 1000. The templates target Linux
 amd64/arm64; the CI image build and smoke test cover amd64 only.
 
@@ -145,7 +140,7 @@ review and pin these dependencies before production use. The installer runs
 upstream scripts during image builds, including the public CI build job.
 
 Public CI checks shell syntax, deterministic staging and structural safety on
-a standard GitHub-hosted runner, then builds all three v3 Kits and runs their smoke tests.
+a standard GitHub-hosted runner, then builds both v3 Kits and runs their smoke tests.
 The smoke test checks executable discovery, UID and Node LTS; it does not
 exercise authenticated agent calls or every installed tool. Passing CI does not
 constitute full Kit conformance, sandbox lifecycle or cloud acceptance testing.

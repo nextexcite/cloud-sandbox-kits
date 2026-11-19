@@ -30,27 +30,6 @@ class AuthSeedTests(unittest.TestCase):
                                      **environment}, capture_output=True, text=True)
         return result
 
-    def test_claude_modes_and_workspace_escaping(self):
-        commands = install_commands('claude')
-        self.assertEqual(len(commands), 2)
-        with tempfile.TemporaryDirectory() as temp:
-            home = Path(temp)
-            workspace = '/workspace/quote" slash\\ tab\t newline\n'
-            result = self.run_seed(commands[0], home, WORKSPACE_DIR=workspace)
-            self.assertEqual(result.returncode, 0, result.stderr)
-            onboarding = json.loads((home / '.claude.json').read_text())
-            self.assertTrue(onboarding['hasCompletedOnboarding'])
-            self.assertTrue(onboarding['projects'][workspace]['hasTrustDialogAccepted'])
-            for mode in ['none', 'apikey', 'oauth', '', 'none']:
-                with self.subTest(mode=mode):
-                    result = self.run_seed(commands[1], home, SBX_CRED_ANTHROPIC_MODE=mode)
-                    self.assertEqual(result.returncode, 0, result.stderr)
-                    settings = json.loads((home / '.claude/settings.json').read_text())
-                    expected = {'apiKeyHelper': 'echo proxy-managed'} if mode in ('apikey', 'oauth') else {}
-                    self.assertEqual(settings, expected)
-            self.assertEqual(self.run_seed(commands[0], home, WORKSPACE_DIR='').returncode, 0)
-            self.assertIn('/', json.loads((home / '.claude.json').read_text())['projects'])
-
     def test_codex_modes_and_stale_auth_removal(self):
         commands = install_commands('codex')
         self.assertEqual(len(commands), 1)
@@ -78,7 +57,7 @@ class AuthSeedTests(unittest.TestCase):
                         self.assertFalse(auth.exists())
 
     def test_seed_write_failures_are_not_swallowed(self):
-        for kit in ['claude', 'codex']:
+        for kit in ['codex']:
             with self.subTest(kit=kit), tempfile.TemporaryDirectory() as temp:
                 result = self.run_seed(install_commands(kit)[-1], Path(temp))
                 self.assertNotEqual(result.returncode, 0)
@@ -97,7 +76,7 @@ class RuntimeVerifyTests(unittest.TestCase):
             identity.write_text('#!/bin/sh\necho 1000\n')
             identity.chmod(0o755)
             command = ['/bin/bash', str(ROOT / 'scripts/verify-runtime.sh')]
-            for agent in ['amp', 'claude', 'codex']:
+            for agent in ['amp', 'codex']:
                 with self.subTest(agent=agent):
                     environment = {**os.environ, 'PATH': temp, 'SBX_AGENT_BINARY': agent}
                     missing = subprocess.run(command, env=environment, capture_output=True, text=True)

@@ -29,7 +29,7 @@ class ReferenceTests(unittest.TestCase):
                 self.assertFalse((Path(temp) / 'spec.yaml').exists())
 
     def test_v3_stages_exact_source(self):
-        self.assertEqual(KITS, ['amp', 'claude', 'codex'])
+        self.assertEqual(KITS, ['amp', 'codex'])
         for kit in KITS:
             with self.subTest(kit=kit), tempfile.TemporaryDirectory() as temp:
                 result = subprocess.run(['bash', str(ROOT / 'scripts/stage-v3.sh'), kit, temp],
@@ -110,7 +110,7 @@ class ReferenceTests(unittest.TestCase):
         for forbidden in ['secrets.', 'self-hosted', 'pull_request_target', 'docker login', 'docker push', 'sbx ', '--privileged']:
             self.assertNotIn(forbidden, content)
         self.assertIn('timeout-minutes: 30', content)
-        self.assertIn('kit: [amp, claude, codex]', content)
+        self.assertIn('kit: [amp, codex]', content)
         self.assertIn('docker buildx build -f kits/v3/${{ matrix.kit }}/${{ matrix.kit }}.yaml kits/v3/${{ matrix.kit }} -t sbx-agent-kits/${{ matrix.kit }}:ci --load', content)
         self.assertIn('docker run --rm --entrypoint sbx-agent-kits-verify sbx-agent-kits/${{ matrix.kit }}:ci', content)
         self.assertNotIn('--push', content)
