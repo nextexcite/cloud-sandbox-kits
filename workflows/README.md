@@ -160,6 +160,13 @@ The pending record, submission receipt/failure and callback receipt use separate
 KV keys. Each is written once in the normal path, avoiding Workers KV's one-write
 per second limit on a single key even when Inngest acknowledges immediately.
 
+If Inngest accepts the event but the submission receipt write fails, the Worker
+still returns 202 with the job ID, the Inngest event IDs and a `warning`, and
+retries the write in the background three times. If all three retries fail,
+`GET /jobs/:id` keeps reporting the pending record and never shows the run, even
+though the run proceeds. Use the returned event ID to query Inngest directly in
+that case.
+
 Media functions have durable create/install, detached launch, wait, read-artifact,
 and delete steps. The callback wait is scheduled in parallel with launch so an
 early callback is not lost between sequential steps. The remote Python process
