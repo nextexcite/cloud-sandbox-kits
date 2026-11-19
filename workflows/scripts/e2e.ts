@@ -5,6 +5,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { dockerClient } from "../src/sandbox.js";
 import { Resolver } from "node:dns/promises";
 import { request as httpsRequest } from "node:https";
+import { maskSandboxIds } from "../src/e2e-evidence.js";
 
 await mkdir("out", { recursive: true });
 const children: ReturnType<typeof spawn>[] = [];
@@ -63,7 +64,7 @@ const rows = (text: string) => text.split("\n").flatMap((line) => {
   return id < 0 ? [] : [[parts[0], ...parts.slice(id, id + 3)].join(" ")];
 }).sort();
 const initialListing = listing();
-console.log(`INITIAL_SANDBOX_LISTING:\n${initialListing}`);
+console.log(`INITIAL_SANDBOX_LISTING:\n${maskSandboxIds(initialListing)}`);
 let jobsPassed = false;
 try {
   if (/\bwf-/.test(initialListing)) throw new Error("Pre-existing workflow sandboxes require separate reconciliation");
@@ -159,11 +160,11 @@ try {
   jobsPassed = true;
 } finally {
   const preSweepListing = listing();
-  console.log(`PRE_SWEEP_SANDBOX_LISTING:\n${preSweepListing}`);
+  console.log(`PRE_SWEEP_SANDBOX_LISTING:\n${maskSandboxIds(preSweepListing)}`);
   const unchanged = JSON.stringify(rows(initialListing)) === JSON.stringify(rows(preSweepListing));
   await writeFile("out/e2e-results.json", JSON.stringify({
     head: execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim(),
-    jobs: results, preSweepListing, preexistingUnchanged: unchanged,
+    jobs: results, preSweepListing: maskSandboxIds(preSweepListing), preexistingUnchanged: unchanged,
   }, null, 2));
   for (const child of children) {
     if (child.pid) { try { process.kill(-child.pid, "SIGTERM"); } catch {} }
@@ -177,7 +178,7 @@ try {
     } finally { await client.sdk.close(); }
   }
   const afterSweep = listing();
-  console.log(afterSweep);
+  console.log(maskSandboxIds(afterSweep));
   if (/\bwf-/.test(preSweepListing)) throw new Error("Workflow sandboxes remained before fallback sweep");
   if (/\bwf-/.test(afterSweep)) throw new Error("Workflow sandboxes remain");
   if (!unchanged || JSON.stringify(rows(initialListing)) !== JSON.stringify(rows(afterSweep))) throw new Error("Pre-existing sandboxes changed");
