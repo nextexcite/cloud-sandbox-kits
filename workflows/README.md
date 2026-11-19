@@ -163,7 +163,8 @@ per second limit on a single key even when Inngest acknowledges immediately.
 If Inngest accepts the event but the submission receipt write fails, the Worker
 still returns 202 with the job ID, the Inngest event IDs and a `warning`, and
 retries the write in the background three times. If all three retries fail,
-`GET /jobs/:id` keeps reporting the pending record and never shows the run, even
+`GET /jobs/:id` returns `{"data": []}` (404 after the 24 h record TTL) and never
+shows the run, even
 though the run proceeds. Use the returned event ID to query Inngest directly in
 that case.
 
