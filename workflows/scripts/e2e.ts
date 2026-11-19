@@ -5,7 +5,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { dockerClient } from "../src/sandbox.js";
 import { Resolver } from "node:dns/promises";
 import { request as httpsRequest } from "node:https";
-import { maskSandboxIds } from "../src/e2e-evidence.js";
+import { maskSandboxIds, withFallbackSweep } from "../src/e2e-evidence.js";
 
 await mkdir("out", { recursive: true });
 const children: ReturnType<typeof spawn>[] = [];
@@ -159,24 +159,30 @@ try {
   if (settled.some((x) => x.status === "rejected")) throw new Error(settled.filter((x) => x.status === "rejected").map((x) => x.reason.message).join("; "));
   jobsPassed = true;
 } finally {
-  const preSweepListing = listing();
-  console.log(`PRE_SWEEP_SANDBOX_LISTING:\n${maskSandboxIds(preSweepListing)}`);
-  const unchanged = JSON.stringify(rows(initialListing)) === JSON.stringify(rows(preSweepListing));
-  await writeFile("out/e2e-results.json", JSON.stringify({
-    head: execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim(),
-    jobs: results, preSweepListing: maskSandboxIds(preSweepListing), preexistingUnchanged: unchanged,
-  }, null, 2));
-  for (const child of children) {
-    if (child.pid) { try { process.kill(-child.pid, "SIGTERM"); } catch {} }
-  }
-  if (ownedJobs.size) {
-    const client = dockerClient();
-    try {
-      for await (const sandbox of client.sdk.all()) {
-        if (sandbox.displayName && ownedJobs.has(sandbox.displayName.slice(3)) && sandbox.displayName.startsWith("wf-")) await client.delete(sandbox);
-      }
-    } finally { await client.sdk.close(); }
-  }
+  const { preSweepListing, unchanged } = await withFallbackSweep(async () => {
+    const preSweepListing = listing();
+    console.log(`PRE_SWEEP_SANDBOX_LISTING:\n${maskSandboxIds(preSweepListing)}`);
+    const unchanged = JSON.stringify(rows(initialListing)) === JSON.stringify(rows(preSweepListing));
+    const head = execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+    const evidence = JSON.stringify({ head, jobs: results, preSweepListing: maskSandboxIds(preSweepListing), preexistingUnchanged: unchanged }, null, 2);
+    await writeFile("out/e2e-results.json", evidence);
+    const path = `out/e2e-results-${head.slice(0, 7)}.json`;
+    await writeFile(path, evidence);
+    console.log(`RESULTS_JSON: ${path}`);
+    return { preSweepListing, unchanged };
+  }, async () => {
+    for (const child of children) {
+      if (child.pid) { try { process.kill(-child.pid, "SIGTERM"); } catch {} }
+    }
+    if (ownedJobs.size) {
+      const client = dockerClient();
+      try {
+        for await (const sandbox of client.sdk.all()) {
+          if (sandbox.displayName && ownedJobs.has(sandbox.displayName.slice(3)) && sandbox.displayName.startsWith("wf-")) await client.delete(sandbox);
+        }
+      } finally { await client.sdk.close(); }
+    }
+  });
   const afterSweep = listing();
   console.log(maskSandboxIds(afterSweep));
   if (/\bwf-/.test(preSweepListing)) throw new Error("Workflow sandboxes remained before fallback sweep");
