@@ -69,7 +69,7 @@ ${kind === "transcribe" ? "python3 -m venv /opt/media\n/opt/media/bin/pip -q ins
       }),
     ]);
     if (!callback) throw new Error("Sandbox callback timed out");
-    return await step.run("read-artifacts", async () => {
+    const result = await step.run("read-artifacts", async () => {
       const client = dockerClient();
       try {
         const sandbox = await client.sdk.get(launched.name);
@@ -98,5 +98,7 @@ ${kind === "transcribe" ? "python3 -m venv /opt/media\n/opt/media/bin/pip -q ins
         return { ...result, callbackReceived: true, timings: launched.timings, copied };
       } finally { await client.sdk.close(); }
     });
+    if (result.status === "failed") throw new NonRetriableError("Sandbox media job failed");
+    return result;
   } finally { await step.run("delete-sandbox", () => cleanup(jobId)); }
 }));
