@@ -11,6 +11,7 @@ RUN /opt/media/bin/python -c "from huggingface_hub import snapshot_download; sna
  && curl -fL --retry 3 https://raw.githubusercontent.com/openai/whisper/main/tests/jfk.flac -o /opt/media/jfk.flac \
  && mkdir -p /opt/media/cache && chown -R 1000:1000 /opt/media/cache \
  && chmod -R a+rX /opt/media/models /opt/media/jfk.flac
+RUN /opt/media/bin/pip install --no-cache-dir yt-dlp-ejs==0.8.0
 COPY scripts/media.py /opt/media/media.py
 RUN chmod 0755 /opt/media/media.py \
  && for name in media-encode media-transcribe media-fetch-audio media-smoke; do ln -s /opt/media/media.py /usr/local/bin/$name; done

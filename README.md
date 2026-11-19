@@ -152,7 +152,8 @@ Specifications: [Kit v3](https://github.com/docker/sandbox-kit-spec) and
 
 `kits/v3/media` is a self-contained, non-root media workload, without agent
 credentials or GPU dependencies. It installs ffmpeg with libx264/libx265,
-Node for yt-dlp, and a Python venv with yt-dlp 2026.10.26, faster-whisper
+Node for yt-dlp, and a Python venv with yt-dlp 2026.10.26,
+its compatible yt-dlp-ejs 0.8.0 challenge solver, faster-whisper
 1.2.1, PyAV 16.0.1 and numpy 2.3.5. The tiny.en model and public Whisper
 JFK test sample are baked in for offline use. This is separate from the
 Amp/Codex toolchain images and their CI build matrix.

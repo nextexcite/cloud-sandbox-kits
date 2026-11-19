@@ -25,7 +25,7 @@ class MediaTests(unittest.TestCase):
         self.assertNotIn('sandbox/credential', manifest)
         self.assertIn('contentFile: ./media-context.md', manifest)
         recipe = (ROOT / 'kits/v3/media/media.dockerfile').read_text()
-        for pin in ['yt-dlp==2026.10.26', 'faster-whisper==1.2.1', 'av==16.0.1', 'numpy==2.3.5']:
+        for pin in ['yt-dlp==2026.10.26', 'yt-dlp-ejs==0.8.0', 'faster-whisper==1.2.1', 'av==16.0.1', 'numpy==2.3.5']:
             self.assertIn(pin, recipe)
         self.assertIn('USER agent', recipe)
 
