@@ -20,6 +20,26 @@ test("Worker rejects unauthorized jobs and unsigned callbacks", async () => {
   assert.equal((await worker.fetch(new Request("https://worker/jobs/encode", { method: "POST" }), env)).status, 401);
   assert.equal((await worker.fetch(new Request("https://worker/callbacks/sandbox", { method: "POST", body: JSON.stringify({ jobId: "x", status: "completed", result: {} }) }), env)).status, 401);
 });
+test("Worker caps streamed bodies without trusting Content-Length", async () => {
+  const env = { INNGEST_EVENT_URL: "http://localhost", INNGEST_API_URL: "http://localhost", FRONTDOOR_TOKEN: "test-only", CALLBACK_SECRET: "test-only", JOBS: { get: async () => null, put: async () => {} } };
+  for (const path of ["/callbacks/sandbox", "/jobs/encode"]) {
+    let chunks = 0;
+    let cancelled = false;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (chunks++ < 10) controller.enqueue(new Uint8Array(16384));
+        else controller.close();
+      },
+      cancel() { cancelled = true; },
+    }, { highWaterMark: 0 });
+    const request = new Request(`https://worker${path}`, { method: "POST", body, headers: { Authorization: "Bearer test-only" }, duplex: "half" } as RequestInit);
+    assert.equal((await worker.fetch(request, env)).status, 413);
+    assert.equal(cancelled, true);
+    assert.equal(chunks, 5);
+  }
+  const body = JSON.stringify({ jobId: "x", status: "completed", result: { text: "中".repeat(23000) } });
+  assert.equal((await worker.fetch(new Request("https://worker/callbacks/sandbox", { method: "POST", body, headers: { "Content-Length": "1" } }), env)).status, 413);
+});
 test("Worker enqueues jobs, authenticates callbacks, deduplicates and proxies status", async () => {
   const values = new Map<string, string>();
   const env = { INNGEST_EVENT_URL: "http://localhost", INNGEST_API_URL: "http://localhost", FRONTDOOR_TOKEN: "test-only", CALLBACK_SECRET: "test-only",

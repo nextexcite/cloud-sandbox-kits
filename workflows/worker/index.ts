@@ -29,6 +29,25 @@ async function emit(env: Env, event: object) {
   if (!response.ok) throw new Error("Inngest event submission failed");
   return response.json() as Promise<{ ids: string[] }>;
 }
+async function readBody(request: Request): Promise<string | undefined> {
+  if (!request.body) return "";
+  const reader = request.body.getReader();
+  const decoder = new TextDecoder();
+  let bytes = 0;
+  let text = "";
+  try {
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) return text + decoder.decode();
+      bytes += value.byteLength;
+      if (bytes > 65536) {
+        await reader.cancel();
+        return undefined;
+      }
+      text += decoder.decode(value, { stream: true });
+    }
+  } finally { reader.releaseLock(); }
+}
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -37,8 +56,8 @@ export default {
     if (Number(request.headers.get("content-length") ?? 0) > 65536) return new Response("Body too large", { status: 413 });
     try {
       if (request.method === "POST" && url.pathname === "/callbacks/sandbox") {
-        const raw = await request.text();
-        if (raw.length > 65536) return new Response("Body too large", { status: 413 });
+        const raw = await readBody(request);
+        if (raw === undefined) return new Response("Body too large", { status: 413 });
         const data = JSON.parse(raw);
         if (typeof data.jobId !== "string" || !["completed", "failed", "needs_cookies"].includes(data.status) || !data.result || typeof data.result !== "object") return new Response("Invalid callback", { status: 400 });
         const signature = request.headers.get("x-sandbox-signature") ?? "";
@@ -56,8 +75,8 @@ export default {
       }
       if (request.headers.get("authorization") !== `Bearer ${env.FRONTDOOR_TOKEN}`) return new Response("Unauthorized", { status: 401 });
       if (request.method === "POST" && /^\/jobs\/(browser|encode|transcribe)$/.test(url.pathname)) {
-        const raw = await request.text();
-        if (raw.length > 65536) return new Response("Body too large", { status: 413 });
+        const raw = await readBody(request);
+        if (raw === undefined) return new Response("Body too large", { status: 413 });
         let data;
         try { data = validateJob(url.pathname.split("/")[2], JSON.parse(raw)); }
         catch { return Response.json({ error: "Invalid job body" }, { status: 400 }); }
