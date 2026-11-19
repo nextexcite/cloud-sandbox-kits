@@ -1,0 +1,6 @@
+{
+  "name": "sandbox-sdk-compatibility-probe",
+  "main": "sdk-probe.ts",
+  "compatibility_date": "2026-11-19",
+  "secrets": { "required": ["DOCKER_ID", "DOCKER_CLOUD_SANDBOX_TOKEN"] }
+}

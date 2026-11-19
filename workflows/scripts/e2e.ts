@@ -60,7 +60,7 @@ try {
     if (occupied) throw new Error(`Port ${port} is occupied`);
   }
   await start("npx", ["inngest-cli@latest", "dev", "-u", "http://localhost:3000/api/inngest"], "inngest.log");
-  await start("npx", ["wrangler", "dev", "--config", "worker/wrangler.jsonc", "--port", "8787", "--local"], "worker.log");
+  await start("npx", ["wrangler", "dev", "--config", "worker/wrangler.jsonc", "--port", "8787", "--local"], "worker.log", { DOCKER_ID: undefined, DOCKER_CLOUD_SANDBOX_TOKEN: undefined });
   await start(process.env.CLOUDFLARED_BIN ?? "cloudflared", ["tunnel", "--url", "http://localhost:8787", "--no-autoupdate"], "tunnel.log");
   const publicUrl = await waitFor(async () => {
     const text = await readFile("out/tunnel.log", "utf8");
@@ -75,8 +75,6 @@ try {
     try { await json("http://localhost:3000/health"); return true; } catch { return undefined; }
   }, 60_000);
   await json("http://localhost:3000/api/inngest", { method: "PUT" });
-  const probe = await request(`${publicUrl}/sdk-probe`, { headers: auth });
-  console.log(`WORKER_SDK_PROBE: ${probe.status} ${await probe.text()}`);
   const invalid = await request(`${publicUrl}/callbacks/sandbox`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jobId: "unknown", status: "completed", result: {} }) });
   if (invalid.status !== 401) throw new Error("Unsigned callback was not rejected");
   const invalidJob = await request(`${publicUrl}/jobs/encode`, { method: "POST", headers: { ...auth, "Content-Type": "application/json" }, body: JSON.stringify({ durationSec: -1 }) });

@@ -1,4 +1,3 @@
-import { Sandboxes, pat } from "@docker/sandboxes";
 import { validateJob } from "../src/jobs.js";
 
 interface Env {
@@ -9,8 +8,6 @@ interface Env {
   INNGEST_SIGNING_KEY?: string;
   FRONTDOOR_TOKEN: string;
   CALLBACK_SECRET: string;
-  DOCKER_ID?: string;
-  DOCKER_CLOUD_SANDBOX_TOKEN?: string;
 }
 interface Job { ids: string[]; callbackAccepted: boolean; submission?: "pending" | "submitted" | "failed" }
 async function getJob(env: Env, id: string): Promise<Job | undefined> {
@@ -108,29 +105,6 @@ export default {
         const headers = env.INNGEST_SIGNING_KEY ? { Authorization: `Bearer ${env.INNGEST_SIGNING_KEY}` } : undefined;
         const response = await fetch(`${env.INNGEST_API_URL}/v1/events/${job.ids[0]}/runs`, { headers });
         return new Response(response.body, { status: response.status, headers: { "Content-Type": "application/json" } });
-      }
-      if (request.method === "GET" && url.pathname === "/sdk-probe") {
-        if (!env.DOCKER_ID || !env.DOCKER_CLOUD_SANDBOX_TOKEN) return new Response("Docker bindings missing", { status: 503 });
-        let patFetchAttempted = false;
-        let patHttpStatus: number | undefined;
-        const sdk = new Sandboxes({ auth: pat({ username: env.DOCKER_ID, personalAccessToken: env.DOCKER_CLOUD_SANDBOX_TOKEN,
-          transportRetries: "none",
-          fetch: async (input) => {
-            patFetchAttempted = true;
-            const response = await fetch(input);
-            patHttpStatus = response.status;
-            return response;
-          },
-        }) });
-        try {
-          const result = await sdk.list({}, { timeoutMs: 30_000 });
-          return Response.json({ authenticatedSDK: true, count: result.items.length });
-        } catch (error) { return Response.json({ authenticatedSDK: false,
-          errorName: error instanceof Error ? error.name : "UnknownError",
-          code: error && typeof error === "object" && "code" in error ? error.code : undefined,
-          patFetchAttempted, patHttpStatus,
-        }); }
-        finally { await sdk.close(); }
       }
       return new Response("Not found", { status: 404 });
     } catch { return Response.json({ error: "Request failed" }, { status: 502 }); }

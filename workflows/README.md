@@ -74,8 +74,17 @@ Verified a browser-platform esbuild bundle with `--conditions=worker` and a loca
 Wrangler/workerd request **without nodejs_compat**: importing the package,
 constructing a PAT-authenticated client and closing it returned `SDK_IMPORT_PASS`.
 That original probe intentionally makes no authenticated cloud requests. Step 2's
-authenticated probe is `GET /sdk-probe` on the front door (bearer protected), and
-its result is printed by the extended E2E. It **fails before sending the PAT
+authenticated probe is now isolated in `scripts/sdk-probe.ts`, not the front door.
+Run it separately on localhost only, with Docker credentials in the environment:
+
+```sh
+npx wrangler dev --config scripts/sdk-probe.wrangler.jsonc --port 8788 --local
+# In another terminal:
+curl http://localhost:8788
+```
+
+The front-door Worker has no Docker SDK import or Docker secret bindings. The
+standalone probe **fails before sending the PAT
 exchange request** with `AuthenticationError`, code `unauthenticated`, and
 `patFetchAttempted: false`. The SDK constructs requests using `redirect: "error"`;
 workerd rejects this option. A separate synthetic request reproduced the precise
@@ -110,8 +119,9 @@ was removed. No force audit upgrade is applied to this reference.
 ## Worker API and detached media jobs
 
 `worker/wrangler.jsonc` runs locally with no account and no `nodejs_compat`.
-Wrangler reads the required secrets from the child process environment; no Docker
-ID or PAT is written to disk. The harness generates fresh `FRONTDOOR_TOKEN` and
+Wrangler reads only `FRONTDOOR_TOKEN` and `CALLBACK_SECRET` from the child process
+environment. Docker credentials are needed only by the Node app, not the Worker;
+the harness removes them from Wrangler's environment. The harness generates fresh `FRONTDOOR_TOKEN` and
 `CALLBACK_SECRET` in memory at startup and never logs them. For manual runs, set
 those variables consistently in the Worker and Node app, and set the Node app's
 `CALLBACK_PUBLIC_URL` to the quick tunnel origin.
@@ -124,7 +134,7 @@ those variables consistently in the Worker and Node app, and set the Node app's
 * `GET /jobs/:jobId`: proxies the submitted event's Inngest runs.
 * `POST /callbacks/sandbox`: HMAC-authenticated callback, not bearer authenticated.
 
-Jobs/status/probe require `Authorization: Bearer <FRONTDOOR_TOKEN>`. Job submission
+Jobs/status require `Authorization: Bearer <FRONTDOOR_TOKEN>`. Job submission
 returns `{jobId, inngestEventIds}`. The registry is in Workers KV with one-day
 expiry; Wrangler emulates and persists it locally. The placeholder namespace ID
 in the config is for local use, not an actual Cloudflare resource. Provision KV
