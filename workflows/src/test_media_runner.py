@@ -35,6 +35,9 @@ class MediaRunnerTest(unittest.TestCase):
         self.assertLessEqual(len(body), 65536)
         self.assertEqual(artifact["result"]["transcript"], transcript)
         self.assertNotIn("transcript", json.loads(body)["result"])
+        self.assertNotIn("language", json.loads(body)["result"])
+        self.assertTrue(set(json.loads(body)["result"]) <= {
+            "workSeconds", "downloadSeconds", "modelLoadSeconds", "transcribeSeconds", "audioSeconds"})
 
     def test_unknown_container_duration_uses_decoded_audio(self):
         for duration in [b"N/A", b"", b"nan"]:

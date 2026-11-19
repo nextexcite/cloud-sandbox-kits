@@ -77,7 +77,9 @@ except Exception as error:
 result["workSeconds"] = round(time.monotonic() - started, 3)
 payload = {"jobId": config["jobId"], "status": status, "result": result}
 Path("/root/result.json").write_text(json.dumps(payload))
-callback = {**payload, "result": {key: value for key, value in result.items() if key != "transcript"}}
+stats = {key: result[key] for key in ("workSeconds", "downloadSeconds", "modelLoadSeconds", "transcribeSeconds", "audioSeconds")
+         if isinstance(result.get(key), (int, float))}
+callback = {"jobId": config["jobId"], "status": status, "result": stats}
 body = json.dumps(callback, separators=(",", ":")).encode()
 signature = hmac.new(config["callbackKey"].encode(), body, hashlib.sha256).hexdigest()
 for attempt in range(8):
