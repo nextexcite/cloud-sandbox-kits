@@ -53,7 +53,7 @@ async function readBody(request: Request): Promise<ArrayBuffer | undefined> {
   } finally { reader.releaseLock(); }
 }
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx?: { waitUntil(task: Promise<unknown>): void }): Promise<Response> {
     const url = new URL(request.url);
     if (url.pathname === "/health") return Response.json({ ok: true });
     if (!env.CALLBACK_SECRET || !env.FRONTDOOR_TOKEN) return Response.json({ error: "Secrets not configured" }, { status: 503 });
@@ -96,8 +96,19 @@ export default {
           await env.JOBS.put(`submission:${jobId}`, JSON.stringify({ ids: [], submission: "failed" }), { expirationTtl: 86400 });
           return Response.json({ error: "Inngest event submission failed", jobId }, { status: 502 });
         }
-        await env.JOBS.put(`submission:${jobId}`, JSON.stringify({ ids: sent.ids, submission: "submitted" }), { expirationTtl: 86400 });
-        return Response.json({ jobId, inngestEventIds: sent.ids }, { status: 202 });
+        const saveReceipt = () => env.JOBS.put(`submission:${jobId}`, JSON.stringify({ ids: sent.ids, submission: "submitted" }), { expirationTtl: 86400 });
+        let warning;
+        try { await saveReceipt(); }
+        catch {
+          warning = "Event accepted; registry receipt pending";
+          ctx?.waitUntil((async () => {
+            for (const delay of [1100, 2200, 4400]) {
+              await new Promise((resolve) => setTimeout(resolve, delay));
+              try { await saveReceipt(); return; } catch {}
+            }
+          })());
+        }
+        return Response.json({ jobId, inngestEventIds: sent.ids, warning }, { status: 202 });
       }
       if (request.method === "GET" && url.pathname.startsWith("/jobs/")) {
         const job = await getJob(env, url.pathname.slice(6));

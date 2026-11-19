@@ -127,3 +127,26 @@ test("Worker submission works with one KV write per key per second", async () =>
     assert.deepEqual(await failedStatus.json(), { data: [{ status: "Failed" }] });
   } finally { globalThis.fetch = oldFetch; }
 });
+test("accepted submissions retain IDs when receipt storage fails and retry in background", async () => {
+  const values = new Map<string, string>();
+  let receiptAttempts = 0;
+  const tasks: Promise<unknown>[] = [];
+  const env = { INNGEST_EVENT_URL: "http://localhost", INNGEST_API_URL: "http://localhost", FRONTDOOR_TOKEN: "test-only", CALLBACK_SECRET: "test-only",
+    JOBS: { get: async (id: string) => values.get(id) ?? null, put: async (id: string, value: string) => {
+      if (id.startsWith("submission:") && receiptAttempts++ === 0) throw new Error("KV unavailable");
+      values.set(id, value);
+    } } };
+  const oldFetch = globalThis.fetch;
+  globalThis.fetch = async (_url, init) => Response.json(init?.body ? { ids: ["accepted-event"] } : { data: [{ status: "Running" }] });
+  try {
+    const response = await worker.fetch(new Request("https://worker/jobs/encode", { method: "POST", headers: { Authorization: "Bearer test-only" }, body: "{}" }), env, { waitUntil: (task) => { tasks.push(task); } });
+    assert.equal(response.status, 202);
+    const job = await response.json() as { jobId: string; inngestEventIds: string[]; warning: string };
+    assert.ok(job.jobId);
+    assert.deepEqual(job.inngestEventIds, ["accepted-event"]);
+    assert.match(job.warning, /Event accepted/);
+    await Promise.all(tasks);
+    const status = await worker.fetch(new Request(`https://worker/jobs/${job.jobId}`, { headers: { Authorization: "Bearer test-only" } }), env);
+    assert.deepEqual(await status.json(), { data: [{ status: "Running" }] });
+  } finally { globalThis.fetch = oldFetch; }
+});
