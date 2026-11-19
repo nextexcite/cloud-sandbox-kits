@@ -128,7 +128,7 @@ try {
       if (run.status !== "Failed") throw new Error("Bad source did not produce Failed run status");
       const failureReason = "Sandbox media job failed: source_download_failed";
       if (!JSON.stringify(result).includes(failureReason)) throw new Error("Bad source failed for an unexpected reason");
-      const failed = { label: item.label, jobId: item.jobId, runStatus: run.status, failureReason };
+      const failed = { label: item.label, jobId: item.jobId, runStatus: run.status, callbackReceived: true, failureReason };
       results.push(failed);
       console.log(`BAD_SOURCE_STATUS: ${JSON.stringify(failed)}`);
       return;
@@ -140,7 +140,7 @@ try {
     if (item.label === "speech" && (result.status !== "completed" || !result.result.transcript || result.result.audioSeconds < 120)) throw new Error("Speech output missing");
     if (item.label === "youtube" && result.status !== "needs_cookies") throw new Error("Unauthenticated YouTube did not return needs_cookies");
     const summary = { label: item.label, jobId: item.jobId, runStatus: run.status,
-      status: result.status, callbackReceived: result.callbackReceived, model: item.data.model,
+      status: result.status, callbackReceived: item.kind === "browser" ? "n/a" : result.callbackReceived, model: item.data.model,
       title: result.title, screenshotBytes: result.screenshotBytes, timings: result.timings,
       stats: item.kind === "browser" ? undefined : {
         language: result.result.language, audioSeconds: result.result.audioSeconds,
