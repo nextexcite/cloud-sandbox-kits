@@ -18,7 +18,7 @@ Evidence rules for this page:
 Keep the jobs that already run on E2B there. That is a no-migration choice,
 not a measured E2B advantage. For **new** jobs neither platform is the default:
 Docker Cloud passed the smoke tests listed below for CPU work, and what it adds
-for this repo is Kit v3 images and per-sandbox policy logs (both measured).
+for this repo is Kit v3 images and per-sandbox egress policy logs (both measured; egress on plain Ubuntu).
 Move an existing E2B job only after a like-for-like test shows a win.
 
 Hardware **video encoding** (NVENC) needs a GPU: none was found in Docker Cloud
@@ -32,9 +32,9 @@ using Lambda/Workers only as triggers is a design choice of this page.
 
 | Workload | Existing jobs | Docker Cloud (measured, scope stated) | Other options (docs only) |
 | --- | --- | --- | --- |
-| Coding agent harnesses | Stay on E2B | Amp Kit/runtime smoke-tested: cold Kit build 505 s, `sbx-agent-kits-verify` and nested Docker passed. No agent or model run; Codex/Claude Kits not run | not assessed |
+| Coding agent harnesses | Stay on E2B | Amp Kit/runtime smoke-tested: full cold launch 505 s (local build 5m8s + upload/prep ~2m56s + create 15s); `amp` and `sbx-agent-kits-verify` ran and the Docker daemon was reachable. No agent, model or nested-container run; Codex/Claude Kits not run | not assessed |
 | Amp runner / orb daemon | Stay on E2B | Proxy only: a detached dummy process kept its PID across stop/resume. No orb run | [Daytona VM pause/resume](https://www.daytona.io/docs/en/persistence.md) keeps memory; container sandboxes do not |
-| CPU video encoding (H.264/HEVC) | Stay on E2B | One 60 s 1080p30 clip, large size: H.264 16.7 s (3.6x realtime), HEVC 29.4 s (2.0x) | [Lambda](https://docs.aws.amazon.com/lambda/latest/dg/gettingstarted-limits.html) if a job fits in 15 min |
+| CPU video encoding (H.264/HEVC) | Stay on E2B | One 60 s 1080p30 clip, large size: H.264 16.7 s (3.6x realtime), HEVC 29.4 s (2.0x) | [Lambda](https://docs.aws.amazon.com/lambda/latest/dg/gettingstarted-limits.html) if a job fits in one standard 15 min invocation |
 | GPU video encoding (NVENC) | n/a ([E2B CPU-only](https://docs.e2b.dev/faq/gpu-support)) | No GPU found | [Modal GPUs](https://modal.com/docs/guide/gpu.md) incl. L4, which [NVIDIA lists with NVENC](https://developer.nvidia.com/video-encode-and-decode-gpu-support-matrix-new); [Daytona GPU sandboxes](https://www.daytona.io/docs/en/gpu-sandboxes.md) (deleted on stop). GPU encode not tested |
 | Transcription, `tiny.en` | Stay on E2B | One 11 s sample, CPU int8: 17.6x realtime, model load excluded, accuracy not checked | n/a |
 | Transcription, larger Whisper models | Stay on E2B | Not benchmarked. [faster-whisper documents](https://github.com/SYSTRAN/faster-whisper#usage) `large-v3` on CPU with int8 | Modal or Daytona GPU when throughput demands it |
@@ -52,12 +52,12 @@ Docker column: measured unless marked. Other columns: vendor docs only.
 | | Docker Cloud Sandboxes | E2B | Modal Sandboxes | Daytona | Lambda / Workers |
 | --- | --- | --- | --- | --- | --- |
 | Isolation | not verified here | [Firecracker microVM](https://docs.e2b.dev/template/how-it-works) | [gVisor or VM runtime](https://modal.com/docs/guide/sandboxes.md) | [containers, Linux/Windows VMs, GPU](https://www.daytona.io/docs/en/isolation.md) | — |
-| Startup (not comparable across columns) | plain image 2.0–3.5 s; 5 parallel in 3.2 s; cold custom Kit 505 s | ~80 ms to [load a prepared snapshot](https://docs.e2b.dev/template/how-it-works) | no Sandbox readiness benchmark; vendor reports [sub-second VM cold starts](https://modal.com/blog/vm-sandboxes-agent-computers) | vendor reports [<90 ms](https://www.daytona.io/docs/en/sandboxes.md) | — |
-| Lifetime | resume started a new TTL; default 1 h TTL and 24 h-from-creation extension cap per Docker docs (PR #4) | [24 h (Pro) continuous, reset by pause/resume](https://docs.e2b.dev/faq/sandbox-lifetime) | [5 min default, 24 h max](https://modal.com/docs/guide/sandboxes.md) | [kept until deleted; auto-stop/pause/delete intervals](https://www.daytona.io/docs/en/persistence.md) | [Lambda 15 min](https://docs.aws.amazon.com/lambda/latest/dg/gettingstarted-limits.html); [Workers `waitUntil` up to 30 s](https://developers.cloudflare.com/workers/platform/limits/) |
+| Startup (not comparable across columns) | amd64 Ubuntu micro/small/large 2.0–3.0 s, `shell-docker` small 3.5 s, arm64 small 4.3 s (CLI); SDK batch of 5 micro creates+exec 3.2 s; full cold custom Amp Kit launch 505 s | ~80 ms to [load a prepared snapshot](https://docs.e2b.dev/template/how-it-works) | no Sandbox readiness benchmark; vendor reports [sub-second VM cold starts](https://modal.com/blog/vm-sandboxes-agent-computers) | vendor reports [<90 ms](https://www.daytona.io/docs/en/sandboxes.md) | — |
+| Lifetime | resume started a new TTL; default 1 h TTL and 24 h-from-creation extension cap per Docker docs (PR #4) | [24 h (Pro) continuous, reset by pause/resume](https://docs.e2b.dev/faq/sandbox-lifetime) | [5 min default, 24 h max](https://modal.com/docs/guide/sandboxes.md) | [kept until deleted; auto-stop/pause/delete intervals](https://www.daytona.io/docs/en/persistence.md) | [Lambda 15 min per standard invocation](https://docs.aws.amazon.com/lambda/latest/dg/gettingstarted-limits.html); [Workers `waitUntil` up to 30 s of post-response work](https://developers.cloudflare.com/workers/platform/limits/) |
 | Memory/process state | stop/resume kept a dummy process and its PID | [pause keeps memory and processes](https://docs.e2b.dev/sandbox/persistence), [auto-resume](https://docs.e2b.dev/sandbox/auto-resume) | [experimental memory snapshots](https://modal.com/docs/guide/sandbox-snapshots#memory-snapshots): restore into a new sandbox, not live pause/resume, snapshot ends the original, 7-day expiry | [VM pause/resume keeps memory; containers keep disk only](https://www.daytona.io/docs/en/persistence.md); [GPU deleted on stop](https://www.daytona.io/docs/en/gpu-sandboxes.md) | — |
 | GPU | none found | [none](https://docs.e2b.dev/faq/gpu-support) | [yes](https://modal.com/docs/guide/gpu.md), [gVisor runtime only](https://modal.com/docs/guide/sandboxes.md) | [NVIDIA/AMD](https://www.daytona.io/docs/en/gpu-sandboxes.md) | — |
-| Nested Docker | `docker run hello-world` passed; nested exec/Compose caveat (PR #4) | [official template](https://docs.e2b.dev/template/examples/docker) | [VM runtime](https://modal.com/docs/guide/sandboxes.md) | [Docker-in-Docker snapshot](https://www.daytona.io/docs/en/snapshots.md#run-docker-in-a-sandbox) | — |
-| Egress control | domain deny blocked all 4 test domains; policy logs shown | [domain allowlist](https://docs.e2b.dev/sandbox/networking#domain-based-filtering) | [egress policy](https://modal.com/docs/guide/sandbox-networking.md) | [block all / CIDR / domain allow list](https://www.daytona.io/docs/en/isolation.md) | — |
+| Nested Docker | `docker run hello-world` passed on `sbx/shell-docker-image`; nested exec/Compose caveat (PR #4) | [official template](https://docs.e2b.dev/template/examples/docker) | [VM runtime](https://modal.com/docs/guide/sandboxes.md) | [Docker-in-Docker snapshot](https://www.daytona.io/docs/en/snapshots.md#run-docker-in-a-sandbox) | — |
+| Egress control | on plain Ubuntu (no Kit rules), per-sandbox deny-all blocked all 4 test domains with policy logs; Kit allow rules still apply under deny-all | [domain allowlist](https://docs.e2b.dev/sandbox/networking#domain-based-filtering) | [egress policy](https://modal.com/docs/guide/sandbox-networking.md) | [block all / CIDR / domain allow list](https://www.daytona.io/docs/en/isolation.md) | — |
 
 Cloudflare's own [Sandboxes](https://developers.cloudflare.com/sandbox/) product
 was not evaluated.
@@ -96,7 +96,7 @@ reconcile the job record against the provider before retrying or using a new key
 
 Also measured: exec during `stopping` failed (`ResourceWaitError`) and delete
 during `stopping` returned 409 `failedPrecondition`; wait for `stopped`.
-Detachment probe (no failure paths): create 2.5 s, first exec 0.5 s, 1 MiB
+Detachment probe (no failure paths, one small `ubuntu:24.04`): create 2.5 s, first exec 0.5 s, 1 MiB
 upload 0.39 s / download 0.18 s, delete 0.5 s; a fresh Node process reconnected
 by name in 0.28 s and read a detached job's output. `sandbox.run()` returned
 collected output; `processes.start()` + `connect()` streamed it.
@@ -131,6 +131,6 @@ collected output; `processes.start()` + `connect()` streamed it.
 ## Not measured
 
 - Any E2B, Modal, Daytona, Lambda, Workers or Inngest run.
-- Fan-out beyond 5 parallel creates (documented defaults: 10 concurrent /
+- Fan-out beyond one batch of 5 parallel micro creates (documented defaults: 10 concurrent /
   50 stored), real callbacks, xl size, volumes, GPU encoding, agent/model runs,
   an actual orb, cost per job.
