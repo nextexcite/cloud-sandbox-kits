@@ -122,15 +122,22 @@ collected output; `processes.start()` + `connect()` streamed it.
 - `@docker/sandboxes` 0.53.0 documents [Node ≥20](https://docs.docker.com/ai/sandboxes-api/install/)
   and [Lambda offers Node runtimes](https://docs.aws.amazon.com/lambda/latest/dg/lambda-nodejs.html)
   (docs). No Lambda deployment was tested.
-- Workers: a `--conditions=worker` esbuild bundle built (357 KB; plain neutral
-  failed on `node:*` builtins). It was never run in workerd, so auth, create and
-  start from a Worker are untested. Until they are, use Workers → Queue → Node.
+- Workers: a `--conditions=worker` esbuild bundle builds (357 KB; plain neutral
+  failed on `node:*` builtins), but SDK 0.53.0's PAT sign-in **fails as-is in
+  local workerd** (`wrangler dev`, no `nodejs_compat`): its auth request is built
+  with `redirect: "error"` (`dist/internal/docker-auth.js`), which workerd
+  rejects (`Invalid redirect value, must be one of "follow" or "manual"`), so
+  the token fetch is never attempted. Found and reproduced in the
+  [PR #8 review](https://github.com/nextexcite/sbx-agent-kits/pull/8); a deployed
+  Worker, other auth paths and workarounds are untested. Use Workers → Queue →
+  Node for SDK calls.
 - `npm audit` on the SDK install reported its `undici` dependency (1 moderate,
   1 high).
 
 ## Not measured
 
-- Any E2B, Modal, Daytona, Lambda, Workers or Inngest run.
+- Any E2B, Modal, Daytona, Lambda, deployed Workers or Inngest run (local
+  workerd ran only the failing PAT sign-in above).
 - Fan-out beyond one batch of 5 parallel micro creates (documented defaults: 10 concurrent /
   50 stored), real callbacks, xl size, volumes, GPU encoding, agent/model runs,
   an actual orb, cost per job.
