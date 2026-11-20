@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import { readdir, readFile, rm } from "node:fs/promises";
 import { NotFoundError, type Sandbox } from "@docker/sandboxes";
 import { dockerClient } from "../src/sandbox.js";
-import { callbackOrigin, command, deploymentMode, privateJson, readJson, request, required, secretsPath, statePath, until, validateDeploymentOwnership, type Deployment, type Secrets } from "./deploy-lib.js";
+import { callbackOrigin, command, deploymentMode, hostInstallMarker, privateJson, readJson, request, requireHostInstall, required, secretsPath, statePath, until, validateDeploymentOwnership, type Deployment, type Secrets } from "./deploy-lib.js";
 
 async function main() {
   const mode = deploymentMode(process.argv[2]);
@@ -138,17 +138,18 @@ async function main() {
       state.hostId = host.name; await save();
     }
     host = await host.waitUntilRunning({ timeoutMs: 300_000 });
+    if (restartOnly) await requireHostInstall((argv) => host!.run(argv, {}, { timeoutMs: 30_000 }));
     const run = async (cmd: string[], env?: Record<string, string>, timeoutMs = 900_000) => {
       const result = await host!.run(cmd, { env }, { timeoutMs });
       if (result.exitCode !== 0 || result.incomplete) throw new Error("Host command failed; remote output suppressed to protect secrets");
       return result.stdout;
     };
     if (!restartOnly) {
-      await run(["bash", "-lc", "set -eu; export DEBIAN_FRONTEND=noninteractive; if ! command -v node >/dev/null; then apt-get update -qq; apt-get install -y -qq curl ca-certificates; curl -fsSL https://deb.nodesource.com/setup_24.x | bash -; apt-get install -y -qq nodejs; fi; mkdir -p /opt/workflows/src /opt/workflows/out"]);
+      await run(["bash", "-lc", `set -eu; rm -f ${hostInstallMarker}; export DEBIAN_FRONTEND=noninteractive; if ! command -v node >/dev/null; then apt-get update -qq; apt-get install -y -qq curl ca-certificates; curl -fsSL https://deb.nodesource.com/setup_24.x | bash -; apt-get install -y -qq nodejs; fi; mkdir -p /opt/workflows/src /opt/workflows/out`]);
       for (const name of ["package.json", "package-lock.json", ...(await readdir("src")).filter((file) => /\.(ts|py)$/.test(file)).map((file) => `src/${file}`)]) {
         await host.files.write(`/opt/workflows/${name}`, await readFile(name));
       }
-      await run(["bash", "-lc", "cd /opt/workflows; npm ci --no-audit --no-fund >/opt/workflows/out/install.log 2>&1"]);
+      await run(["bash", "-lc", `cd /opt/workflows; npm ci --no-audit --no-fund >/opt/workflows/out/install.log 2>&1 && touch ${hostInstallMarker}`]);
     }
     const ports = await host.ports.list();
     const port = ports.published?.find((port) => port.number === 3000) ?? await host.ports.create({ number: 3000, protocol: "tcp" });

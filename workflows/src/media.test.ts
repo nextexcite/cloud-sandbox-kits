@@ -1,9 +1,17 @@
 import { test, mock } from "node:test";
 import assert from "node:assert/strict";
 import { NonRetriableError } from "inngest";
-import { cleanupCancelledMedia, mediaFunctions, requestedOutputs } from "./media.js";
+import { cancelledMediaCondition, cleanupCancelledMedia, mediaFunctions, requestedOutputs } from "./media.js";
+import { inngest } from "./capture.js";
 import { Sandboxes, type Sandbox } from "@docker/sandboxes";
 import { SandboxClient } from "./sandbox.js";
+
+test("cancellation trigger derives registered function IDs from the app ID", () => {
+  assert.equal(cleanupCancelledMedia.opts.triggers?.[0].if, cancelledMediaCondition(inngest.id));
+  assert.equal(cancelledMediaCondition("another-app"), 'event.data.function_id == "another-app-media-encode" || event.data.function_id == "another-app-media-transcribe"');
+  assert.equal(cancelledMediaCondition(""), 'event.data.function_id == "media-encode" || event.data.function_id == "media-transcribe"');
+  assert.equal(cancelledMediaCondition('app"quoted'), 'event.data.function_id == "app\\"quoted-media-encode" || event.data.function_id == "app\\"quoted-media-transcribe"');
+});
 
 test("artifact codec names come only from requested enums", () => {
   const output = { path: "/root/h264.mp4", codec: "../../x", bytes: 1, sha256: "hash" };

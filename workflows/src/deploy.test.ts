@@ -1,7 +1,18 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, mkdir, rm, stat, writeFile } from "node:fs/promises";
-import { callbackOrigin, cancelCloudRun, command, deploymentMode, privateJson, readJson, required, until, validateDeploymentOwnership } from "../scripts/deploy-lib.js";
+import { callbackOrigin, cancelCloudRun, command, deploymentMode, hostInstallMarker, privateJson, readJson, requireHostInstall, required, until, validateDeploymentOwnership } from "../scripts/deploy-lib.js";
+
+test("restart-only requires a complete installation marker and propagates check errors", async () => {
+  await requireHostInstall(async (argv) => {
+    assert.deepEqual(argv, ["test", "-f", hostInstallMarker]);
+    return { exitCode: 0 };
+  });
+  for (const result of [{}, { exitCode: 1 }, { exitCode: 0, incomplete: true }]) {
+    await assert.rejects(requireHostInstall(async () => result), /without --restart-only/);
+  }
+  await assert.rejects(requireHostInstall(async () => { throw new Error("offline"); }), /offline/);
+});
 
 test("host-only ownership permits external Worker metadata without weakening owned-resource checks", () => {
   const state = { hostName: "wf-host-123", workerName: "external-worker", namespaceTitle: "external-kv", workerOwned: false, hostOnly: true };
@@ -49,9 +60,19 @@ test("deployment state is private, round-trips, and distinguishes missing from i
   } finally { await rm(dir, { recursive: true }); }
 });
 
-test("deployment subprocesses accept stdin, strip Docker credentials and redact failures", async () => {
+test("deployment subprocesses accept stdin, allow only required environment and redact failures", async () => {
   assert.equal(await command(process.execPath, ["-e", "process.stdin.pipe(process.stdout)"], "test-only"), "test-only");
-  assert.equal(await command(process.execPath, ["-e", "process.stdout.write(String(!process.env.DOCKER_ID && !process.env.DOCKER_CLOUD_SANDBOX_TOKEN))"]), "true");
+  const denied = ["DOCKER_ID", "DOCKER_CLOUD_SANDBOX_TOKEN", "INNGEST_EVENT_KEY", "INNGEST_SIGNING_KEY", "CALLBACK_SECRET", "FRONTDOOR_TOKEN", "YT_COOKIES", "YT_PROXY", "UNRELATED_SECRET"];
+  const names = [...denied, "CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID"];
+  const previous = Object.fromEntries(names.map((name) => [name, process.env[name]]));
+  try {
+    for (const name of names) process.env[name] = "test-only";
+    assert.equal(await command(process.execPath, ["-e", `process.stdout.write(String(${JSON.stringify(denied)}.every(name => !process.env[name]) && process.env.CLOUDFLARE_API_TOKEN === 'test-only' && process.env.CLOUDFLARE_ACCOUNT_ID === 'test-only'))`]), "true");
+  } finally {
+    for (const [name, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[name]; else process.env[name] = value;
+    }
+  }
   await assert.rejects(command(process.execPath, ["-e", "console.error('test-secret');process.exit(1)"]), (error: Error) => !error.message.includes("test-secret"));
 });
 

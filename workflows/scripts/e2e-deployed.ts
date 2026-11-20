@@ -6,6 +6,7 @@ export const sourceUrl = "https://media.w3.org/2010/05/sintel/trailer.mp4";
 const terminal = ["Completed", "Failed", "Cancelled"];
 
 async function main() {
+  const cancelOnly = process.argv.includes("--cancel-only");
   const state = await readJson<Deployment>(statePath);
   const secrets = await readJson<Secrets>(secretsPath);
   const workerUrl = process.env.WORKER_URL ?? state?.workerUrl;
@@ -50,7 +51,7 @@ async function main() {
       { label: "speech", kind: "transcribe", data: { audioUrl: process.env.SPEECH_URL ?? "https://archive.org/download/gettysburg_address_librivox/gettysburg_address_lincoln_64kb.mp3", model: "tiny.en" } },
       { label: "bad-source", kind: "encode", data: { sourceUrl: "https://example.com/this-wf-source-does-not-exist.mp4", durationSec: 1, codecs: ["h264"] } },
     ];
-    for (const item of cases) {
+    for (const item of cancelOnly ? [] : cases) {
       stage = item.label;
       const jobId = await submit(item.kind, item.data);
       console.log(`SUBMITTED ${item.label} ${jobId}`);
@@ -80,6 +81,7 @@ async function main() {
     }
     stage = "cancel-cleanup";
     const jobId = await submit("encode", { durationSec: 120, codecs: ["hevc"], size: "micro" });
+    console.log(`SUBMITTED cancel-cleanup ${jobId}`);
     const runId = await until(async () => {
       const runs = await status(jobId);
       if (runs.some((run) => terminal.includes(run.status))) throw new Error("Cancellation job finished before cancellation");
@@ -112,8 +114,8 @@ async function main() {
         if (sandbox.displayName?.startsWith("wf-") && !isHost) leftovers++;
         listing.push({ sandbox: owned || isHost ? sandbox.displayName : `pre-existing-${++unrelated}`, status: sandbox.status });
       }
-      const evidence = { passed: passed && leftovers === 0, failureStage: passed && leftovers === 0 ? undefined : stage, cancellationCleanupVerified: cleanupVerified, jobs: results, preSweepListing: listing, leftoverJobSandboxes: leftovers };
-      await privateJson("out/e2e-deployed-results.json", evidence);
+      const evidence = { scope: cancelOnly ? "cancel-only" : "full", passed: passed && leftovers === 0, failureStage: passed && leftovers === 0 ? undefined : stage, cancellationCleanupVerified: cleanupVerified, jobs: results, preSweepListing: listing, leftoverJobSandboxes: leftovers };
+      await privateJson(cancelOnly ? "out/e2e-deployed-cancel-results.json" : "out/e2e-deployed-results.json", evidence);
       console.log(JSON.stringify(evidence, null, 2));
       if (leftovers) throw new Error("Workflow job sandboxes remain before fallback cleanup");
     } finally {
@@ -136,4 +138,4 @@ async function main() {
     }
   }
 }
-main().catch(() => { console.error("Deployed e2e failed; inspect sanitized out/e2e-deployed-results.json (if written)"); process.exitCode = 1; });
+main().catch(() => { console.error("Deployed e2e failed; inspect sanitized out/e2e-deployed*-results.json (if written)"); process.exitCode = 1; });

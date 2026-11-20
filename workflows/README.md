@@ -112,11 +112,11 @@ the host process**, never written into the image, app, startup script or repo.
 They live in the host sandbox's process environment, readable to privileged
 processes in that sandbox. The same applies to its Inngest/callback secrets.
 Protect host access; do not dump process environments or logs containing secrets.
-Wrangler subprocesses do not inherit Docker credentials.
+Wrangler subprocesses inherit only required system/proxy settings and Cloudflare
+credentials, not Docker, Inngest, callback or front-door secrets.
 
-Deployment sets `CALLBACK_PUBLIC_URL` to the deployed Worker origin; the sandbox
-egress policy explicitly includes that hostname (also supporting local tunnels).
-The demonstration still permits arbitrary egress via `*`; this is not an SSRF-safe
+Deployment sets `CALLBACK_PUBLIC_URL` to the deployed Worker origin.
+The sandbox egress policy permits arbitrary egress via `*`; this is not an SSRF-safe
 public service. Keep the generated front-door bearer private.
 
 After host health is ready, deploy sends `PUT https://<host>/api/inngest`.
@@ -169,6 +169,21 @@ npm run deploy -- host-cloud
 # Later, update the callback origin and restart/resync without reinstalling:
 CALLBACK_PUBLIC_URL=https://your-worker.your-subdomain.workers.dev npm run deploy -- host-cloud --restart-only
 ```
+
+`--restart-only` requires the host's successful-install marker; if missing, run
+the full `host-cloud` install first. Full installs clear the marker before copying
+and recreate it only after dependency installation succeeds.
+
+The live Worker `sandbox-workflows-frontdoor` and KV
+`sandbox-workflows-frontdoor-JOBS` were deployed via the Cloudflare MCP, outside
+`deploy.ts` ownership. Host-cloud teardown (including `--all`) removes only the
+host, not those resources. Remove them through the Cloudflare MCP/API
+(`DELETE workers/scripts/<name>` and `DELETE storage/kv/namespaces/<id>` under
+the account endpoint) or dashboard.
+
+To repeat only cancellation and the leftover check, run
+`npm run e2e:deployed -- --cancel-only`; sanitized evidence goes to
+`out/e2e-deployed-cancel-results.json`, preserving the full-run evidence.
 
 This skips Worker/KV entirely, injects the real Inngest keys into the host process,
 and syncs via PUT. The default callback origin is the deliberately non-resolving
@@ -369,9 +384,8 @@ with Web Crypto before decoding JSON, then checks that the signed job ID matches
 the header. It enqueues a deterministic
 callback event ID, and marks the callback accepted. Retries are idempotent within
 Inngest's event-deduplication window; KV is not an atomic exactly-once lock.
-Callbacks retry with bounded exponential backoff. The sandbox egress policy
-explicitly includes the `CALLBACK_PUBLIC_URL` hostname alongside the reference's
-allow-all.
+Callbacks retry with bounded exponential backoff. The sandbox egress policy uses
+the reference's allow-all `*`, including the callback destination.
 
 Remote result JSON and encode SHA-256 values are read after the callback. Small
 callbacks contain only job ID, status and allowlisted numeric timing/duration

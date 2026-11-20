@@ -46,7 +46,7 @@ export const mediaFunctions = (["encode", "transcribe"] as const).map((kind) => 
       try {
         sandbox = await client.create({ name: `wf-${jobId}`, imageRef: process.env.SANDBOX_IMAGE ?? "ubuntu:24.04",
           size: (data.size ?? "large") as SandboxOptions["size"], ttlMs: 3_600_000,
-          network: { policies: [{ mode: "denyAll", allowNetworks: ["*", new URL(process.env.CALLBACK_PUBLIC_URL).hostname] }] },
+          network: { policies: [{ mode: "denyAll", allowNetworks: ["*"] }] },
         });
         const created = Date.now();
         const installed = await client.exec(sandbox, ["bash", "-lc", `set -euo pipefail
@@ -114,9 +114,13 @@ ${kind === "transcribe" ? "python3 -m venv /opt/media\n/opt/media/bin/pip -q ins
   } finally { await step.run("delete-sandbox", () => cleanup(jobId)); }
 }));
 
+export function cancelledMediaCondition(appId: string) {
+  return mediaFunctions.map((fn) => `event.data.function_id == ${JSON.stringify(fn.id(appId))}`).join(" || ");
+}
+
 export const cleanupCancelledMedia = inngest.createFunction({
   id: "cleanup-cancelled-media",
-  triggers: [{ event: "inngest/function.cancelled", if: "event.data.function_id == 'sandbox-workflows-media-encode' || event.data.function_id == 'sandbox-workflows-media-transcribe'" }],
+  triggers: [{ event: "inngest/function.cancelled", if: cancelledMediaCondition(inngest.id) }],
 }, async ({ event, step }) => {
   const jobId = event.data.event?.data?.jobId;
   if (typeof jobId !== "string" || !/^[a-f0-9-]{36}$/.test(jobId)) throw new NonRetriableError("Valid jobId required");

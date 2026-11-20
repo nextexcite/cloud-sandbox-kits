@@ -46,9 +46,12 @@ export async function readJson<T>(path: string): Promise<T | undefined> {
 
 export async function command(bin: string, args: string[], input?: string): Promise<string> {
   return new Promise((resolve, reject) => {
-    const env: NodeJS.ProcessEnv = { ...process.env, WRANGLER_SEND_METRICS: "false" };
-    delete env.DOCKER_ID;
-    delete env.DOCKER_CLOUD_SANDBOX_TOKEN;
+    const env: NodeJS.ProcessEnv = { WRANGLER_SEND_METRICS: "false" };
+    for (const name of ["PATH", "HOME", "USERPROFILE", "SystemRoot", "TMP", "TEMP", "TMPDIR",
+      "XDG_CACHE_HOME", "APPDATA", "LOCALAPPDATA", "CI", "TERM", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY",
+      "SSL_CERT_FILE", "NODE_EXTRA_CA_CERTS", "CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID"]) {
+      if (process.env[name] !== undefined) env[name] = process.env[name];
+    }
     const child = spawn(bin, args, { env, stdio: "pipe" });
     let output = "";
     child.stdout.on("data", (chunk) => { output += chunk; });
@@ -58,6 +61,15 @@ export async function command(bin: string, args: string[], input?: string): Prom
     child.stdin.on("error", () => {});
     child.stdin.end(input);
   });
+}
+
+export const hostInstallMarker = "/opt/workflows/out/install-complete";
+
+export async function requireHostInstall(run: (argv: string[]) => Promise<{ exitCode?: number | null; incomplete?: boolean }>) {
+  const result = await run(["test", "-f", hostInstallMarker]);
+  if (result.exitCode !== 0 || result.incomplete) {
+    throw new Error("Host installation incomplete; run deploy -- host-cloud without --restart-only");
+  }
 }
 
 export async function until<T>(fn: () => Promise<T | undefined>, timeoutMs: number, intervalMs = 3000): Promise<T> {
