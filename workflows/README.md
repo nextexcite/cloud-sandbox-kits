@@ -47,7 +47,209 @@ To run manually, use `INNGEST_DEV=1 npm run dev` and the Inngest command above i
 separate terminals. POST `{"name":"browser/capture","data":{"url":"https://example.com"}}`
 to `http://localhost:8288/e/test`.
 
-## Design
+## Deployed mode
+
+Requires Node 24, npm, and Docker Cloud access on the deploying Linux machine.
+Run commands from `workflows/`. Cloudflare/Inngest keys must belong to the same
+accounts/environments throughout a deployment. Do not run two deploy/teardown
+commands concurrently. This creates billable resources.
+
+| Environment variable | Purpose |
+| --- | --- |
+| `CLOUDFLARE_API_TOKEN` | Wrangler deployment, Workers scripts/subdomain access, and KV namespace create/list/delete permissions |
+| `CLOUDFLARE_ACCOUNT_ID` | Target Cloudflare account |
+| `INNGEST_EVENT_KEY` | Inngest Cloud event ingestion, injected as a Worker secret |
+| `INNGEST_SIGNING_KEY` | Node request verification/app registration and Worker's Cloud REST status access; environment signing key, not event key |
+| `DOCKER_ID`, `DOCKER_CLOUD_SANDBOX_TOKEN` | SDK PAT authentication on the deploy machine and in the hosted Node process |
+
+Supply these through your secret manager/environment, not command-line literals.
+In Devin exec, bind the Docker variables to `secret:personal:DOCKER_ID` and
+`secret:personal:DOCKER_CLOUD_SANDBOX_TOKEN`; never print their values.
+
+```sh
+npm ci
+npm run deploy
+npm run e2e:deployed
+# Delete only the recorded host; keep Worker, KV, local tokens and ownership record:
+npm run deploy -- teardown
+# Delete recorded host AND the deployment's unique Worker/KV, remove local tokens/state:
+npm run deploy -- teardown --all
+```
+
+Deploy prints only the Worker and host HTTPS URLs. It generates a unique Worker,
+KV namespace and `wf-host-<timestamp>` host name, recording ownership in
+`out/deployment.json`. Re-running reuses the recorded resources, redeploys source
+and restarts Node. Ambiguous KV creates are reconciled by the deployment's unique
+title; host creates use an idempotency key. Keep this record: teardown never
+bulk-deletes or adopts arbitrary account resources. Back it up securely alongside
+`out/deployment-secrets.json`; both are gitignored, mode 0600. The latter contains
+the once-generated `FRONTDOOR_TOKEN` and `CALLBACK_SECRET`. Do not delete it to
+rotate tokens while jobs are running. A missing file after deployment is an error.
+Stop submitting jobs and let existing jobs finish before host teardown/redeploy.
+Optional Worker/KV teardown also destroys job-status records. Teardown does not
+remove unrelated job sandboxes or unregister the app in Inngest Cloud.
+
+The generated `out/wrangler-deployed.json` binds real KV, enables workers.dev,
+sets `INNGEST_EVENT_URL=https://inn.gs` and
+`INNGEST_API_URL=https://api.inngest.com`. All four sensitive Worker settings
+(`FRONTDOOR_TOKEN`, `CALLBACK_SECRET`, `INNGEST_EVENT_KEY`, `INNGEST_SIGNING_KEY`)
+are uploaded with Wrangler's `--secrets-file`, not stored in config. Its temporary
+`out/worker-secrets-upload.json` has mode 0600 and is removed in `finally`;
+remove it manually if the deploy process is forcibly killed. It contains Inngest
+keys, never Docker credentials. Node subprocess stdin is a socket on Linux and
+cannot be reopened as `/dev/stdin` by Wrangler's file reader.
+The checked-in `worker/wrangler.jsonc` remains the local-only config used by
+`npm run e2e`; never deploy its placeholder KV ID.
+
+The host installs Node 24 and the locked app dependencies, copies only package
+files and `src/`, then starts `tsx src/server.ts` using `nohup`/`setsid`.
+Node binds `0.0.0.0`, honors `PORT` (3000 by default), and receives
+`INNGEST_SIGNING_KEY`, `INNGEST_SERVE_ORIGIN` and `INNGEST_SERVE_PATH`;
+`INNGEST_DEV` is explicitly unset. Its native published HTTPS port exposes only
+the Express health/Inngest endpoints. Do not run the Inngest dev server there.
+Docker credentials are injected through SDK exec environment **only when starting
+the host process**, never written into the image, app, startup script or repo.
+They live in the host sandbox's process environment, readable to privileged
+processes in that sandbox. The same applies to its Inngest/callback secrets.
+Protect host access; do not dump process environments or logs containing secrets.
+Wrangler subprocesses inherit only required system/proxy settings and Cloudflare
+credentials, not Docker, Inngest, callback or front-door secrets.
+
+Deployment sets `CALLBACK_PUBLIC_URL` to the deployed Worker origin.
+The sandbox egress policy permits arbitrary egress via `*`; this is not an SSRF-safe
+public service. Keep the generated front-door bearer private.
+
+After host health is ready, deploy sends `PUT https://<host>/api/inngest`.
+In installed Inngest 4.26.2, `InngestCommHandler` handles this as an out-of-band
+sync and registers with Inngest Cloud's `/fn/register` using the hashed signing
+key. Unauthenticated PUT sync is enabled by default; this request cannot choose
+the registration destination. `INNGEST_SERVE_ORIGIN` ensures the registered URL
+uses the public native host URL. GET introspection does not prove registration.
+Worker status already uses `GET https://api.inngest.com/v1/events/{id}/runs`
+with the environment's signing key as Bearer, as documented in
+[Inngest's status example](https://www.inngest.com/docs/examples/fetch-run-status-and-output).
+
+The host requests a 24-hour delete TTL (the CLI enforces a maximum of 24 hours).
+Inspect/extend it with `sbx --cloud ttl wf-host-<timestamp>` and
+`sbx --cloud ttl +24h wf-host-<timestamp>` before expiry. This is a long-lived
+reference host, not automatic renewal, process supervision or artifact backup:
+`nohup` survives exec disconnects, not a host reboot/crash. Re-run deploy to
+restart the app. Host `out/` contains screenshots/media and logs; copy needed
+artifacts securely before teardown. Job sandboxes retain their one-hour delete
+TTL as a final backstop.
+
+The deployed test exercises browser, default testsrc2 encode, public-MP4 encode,
+Gettysburg speech transcription and a bad-source encode. **No YouTube job is
+submitted.** The MP4 fixture is
+`https://media.w3.org/2010/05/sintel/trailer.mp4` (4,372,373 bytes; verified with
+curl during preparation). `SPEECH_URL` may override speech with audio >=120 s.
+Each case polls the Worker's authenticated status API and checks the result.
+The cancellation case starts a 120-second HEVC job on micro, waits for detached
+launch, cancels via `DELETE https://api.inngest.com/v1/runs/{runID}`, then asserts
+Cancelled and sandbox absence **before** fallback cleanup. A separate
+`inngest/function.cancelled` handler cleans up exact media job names; neither a
+cancelled run's `finally` steps nor `onFailure` are assumed to execute. This follows
+[Inngest's cancellation cleanup guidance](https://www.inngest.com/docs/examples/cleanup-after-function-cancellation).
+TTL remains the backstop for cancellation races/host loss.
+
+The test fails if any `wf-` job sandbox remains (excluding the recorded host),
+including pre-existing workflow jobs; run in a quiescent account. It never deletes
+pre-existing sandboxes. Evidence is written before fallback cleanup to
+`out/e2e-deployed-results.json` with unrelated sandbox names/IDs masked, no bearer
+tokens or full transcripts. SIGINT/SIGTERM trigger bounded cleanup after the
+current request/poll. SIGKILL cannot run cleanup; TTL still applies.
+
+Host-only deployment (also billable):
+
+To deploy a real signed Inngest Cloud host **without Cloudflare**, supply the
+Docker and Inngest environment variables above, then run:
+
+```sh
+npm run deploy -- host-cloud
+# Later, update the callback origin and restart/resync without reinstalling:
+CALLBACK_PUBLIC_URL=https://your-worker.your-subdomain.workers.dev npm run deploy -- host-cloud --restart-only
+```
+
+`--restart-only` requires the host's successful-install marker; if missing, run
+the full `host-cloud` install first. Full installs clear the marker before copying
+and recreate it only after dependency installation succeeds.
+
+The live Worker `sandbox-workflows-frontdoor` and KV
+`sandbox-workflows-frontdoor-JOBS` were deployed via the Cloudflare MCP, outside
+`deploy.ts` ownership. Host-cloud teardown (including `--all`) removes only the
+host, not those resources. Remove them through the Cloudflare MCP/API
+(`DELETE workers/scripts/<name>` and `DELETE storage/kv/namespaces/<id>` under
+the account endpoint) or dashboard.
+
+To repeat only cancellation and the leftover check, run
+`npm run e2e:deployed -- --cancel-only`; sanitized evidence goes to
+`out/e2e-deployed-cancel-results.json`, preserving the full-run evidence.
+
+This skips Worker/KV entirely, injects the real Inngest keys into the host process,
+and syncs via PUT. The default callback origin is the deliberately non-resolving
+`https://worker-not-configured.invalid`; do not submit media jobs until configured.
+The selected origin, host name and URL persist in private `out/deployment.json`;
+the sync status/response is saved to private `out/host-sync.json`. Generated
+callback/front-door tokens remain in `out/deployment-secrets.json` for eventual
+Worker deployment. Host-cloud leaves the host running with the same 24-hour TTL.
+In Inngest 4.26.2, cloud GET introspection requires an `x-inngest-signature`
+(unsigned GET returns 401). The current registered count is six: capture,
+encode, transcribe, cancellation cleanup, and two SDK-generated media failure
+handlers from `onFailure`.
+
+For an unsigned, key-free smoke test instead:
+
+```sh
+npm run deploy -- host-only
+# Prints native host HTTPS URL; saves GET /api/inngest evidence to out/host-dry-run.json.
+# No Docker/Inngest/Cloudflare secrets are injected into this host-only app.
+# Inngest 4.26.2 returns HTTP 500 without a signing key; the smoke test also checks
+# the remote server's explicit cloud-mode/missing-signing-key diagnostic.
+npm run deploy -- teardown
+```
+
+Deployment verification record:
+
+**Tested**
+
+* Worker and real KV deployed through the Cloudflare API MCP, **not Wrangler**, at
+  `https://sandbox-workflows-frontdoor.1738248.workers.dev`. Secrets were set via a
+  temporary nonce-gated bootstrap Worker, which was then deleted.
+* Node host: `/health` 200, signed cloud introspection 200 (six functions), and
+  PUT sync 200 (`Successfully registered`). Host-only HTTPS smoke also exercised.
+* All six deployed e2e cases passed:
+
+  | Case | Observed result |
+  | --- | --- |
+  | Browser | Completed; 69,688-byte PNG (not visually inspected) |
+  | Default testsrc2 encode | Completed; H.264 1,784,651 bytes, HEVC 1,440,835 bytes |
+  | Public-MP4 encode | Completed; H.264 270,049 bytes, HEVC 83,923 bytes |
+  | Public-audio transcription | Completed; 161.1751875 seconds, 1,866 transcript characters |
+  | Bad-source encode | Terminal Failed, as expected |
+  | Running media cancellation | Cancelled; job sandbox deleted before fallback cleanup |
+
+* Successful media cases received callbacks; encode artifacts were checksummed.
+  `scripts/e2e-deployed.ts` polled **GET `/jobs/:id` through the deployed Worker**
+  for terminal status, exercising the Inngest Cloud API with signing-key Bearer
+  authentication, not just direct API access.
+* Cancellation used `DELETE /v1/runs/{id}`; the suggested POST `/cancel` returned
+  404. The final independent leftover check found zero job sandboxes and the
+  expected running host; all other account sandboxes were masked. Saved evidence
+  was checked for secrets and unmasked foreign identifiers (none; mode 0600).
+* Callback diagnostic: Python's default User-Agent returned Cloudflare 403/1010;
+  the same signed request with `sandbox-workflows/1.0` returned 200.
+* Host creation accepted a 24-hour delete TTL; expiry was inspected. This was
+  not a 24-hour endurance test.
+
+**Not tested**
+
+* `deploy.ts` Wrangler Worker/KV deployment with a real API token, or teardown
+  against real Cloudflare resources.
+* Timeout cleanup (rather than cancellation), host TTL renewal, or Docker SDK
+  execution in the Worker (SDK remains Node-only by design).
+* YouTube (parked), or visual inspection of the screenshot.
+
+## Design details
 
 * The official SDK (`@docker/sandboxes` 0.53.0) covers image references, named compute
   sizes, TTL, policies, exec, binary files and deletion. No REST fallback is needed.
@@ -153,8 +355,8 @@ is marked failed. Wrangler emulates and persists it locally. The placeholder nam
 in the config is for local use, not an actual Cloudflare resource. Provision KV
 before a real deployment. Set `INNGEST_EVENT_URL=https://inn.gs` and
 `INNGEST_EVENT_KEY` for cloud event ingestion, and the appropriate API URL/signing
-key for status access. Event ingestion requires no code change. Cloud status API
-behavior and a real deployment have not been tested.
+key for status access. Event ingestion requires no code change. The deployed e2e
+exercised Cloud status through the Worker; see the verification record above.
 
 The pending record, submission receipt/failure and callback receipt use separate
 KV keys. Each is written once in the normal path, avoiding Workers KV's one-write
@@ -182,8 +384,8 @@ with Web Crypto before decoding JSON, then checks that the signed job ID matches
 the header. It enqueues a deterministic
 callback event ID, and marks the callback accepted. Retries are idempotent within
 Inngest's event-deduplication window; KV is not an atomic exactly-once lock.
-Callbacks retry with bounded exponential backoff. The sandbox egress policy
-explicitly includes `*.trycloudflare.com` alongside the reference's allow-all.
+Callbacks retry with bounded exponential backoff. The sandbox egress policy uses
+the reference's allow-all `*`, including the callback destination.
 
 Remote result JSON and encode SHA-256 values are read after the callback. Small
 callbacks contain only job ID, status and allowlisted numeric timing/duration
