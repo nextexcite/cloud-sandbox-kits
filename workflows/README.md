@@ -193,12 +193,46 @@ npm run deploy -- host-only
 npm run deploy -- teardown
 ```
 
-Deployment verification record (fill after provisioning keys):
+Deployment verification record:
 
-* Worker/KV deployment and secrets: **not yet tested**.
-* Inngest Cloud host sync: **verified with host-cloud**; Worker status: **not yet tested**.
-* Deployed workload/cancellation tests: **not yet tested**.
-* Host-only HTTPS introspection: **see preparation report / out/host-dry-run.json**.
+**Tested**
+
+* Worker and real KV deployed through the Cloudflare API MCP, **not Wrangler**, at
+  `https://sandbox-workflows-frontdoor.1738248.workers.dev`. Secrets were set via a
+  temporary nonce-gated bootstrap Worker, which was then deleted.
+* Node host: `/health` 200, signed cloud introspection 200 (six functions), and
+  PUT sync 200 (`Successfully registered`). Host-only HTTPS smoke also exercised.
+* All six deployed e2e cases passed:
+
+  | Case | Observed result |
+  | --- | --- |
+  | Browser | Completed; 69,688-byte PNG (not visually inspected) |
+  | Default testsrc2 encode | Completed; H.264 1,784,651 bytes, HEVC 1,440,835 bytes |
+  | Public-MP4 encode | Completed; H.264 270,049 bytes, HEVC 83,923 bytes |
+  | Public-audio transcription | Completed; 161.1751875 seconds, 1,866 transcript characters |
+  | Bad-source encode | Terminal Failed, as expected |
+  | Running media cancellation | Cancelled; job sandbox deleted before fallback cleanup |
+
+* Successful media cases received callbacks; encode artifacts were checksummed.
+  `scripts/e2e-deployed.ts` polled **GET `/jobs/:id` through the deployed Worker**
+  for terminal status, exercising the Inngest Cloud API with signing-key Bearer
+  authentication, not just direct API access.
+* Cancellation used `DELETE /v1/runs/{id}`; the suggested POST `/cancel` returned
+  404. The final independent leftover check found zero job sandboxes and the
+  expected running host; all other account sandboxes were masked. Saved evidence
+  was checked for secrets and unmasked foreign identifiers (none; mode 0600).
+* Callback diagnostic: Python's default User-Agent returned Cloudflare 403/1010;
+  the same signed request with `sandbox-workflows/1.0` returned 200.
+* Host creation accepted a 24-hour delete TTL; expiry was inspected. This was
+  not a 24-hour endurance test.
+
+**Not tested**
+
+* `deploy.ts` Wrangler Worker/KV deployment with a real API token, or teardown
+  against real Cloudflare resources.
+* Timeout cleanup (rather than cancellation), host TTL renewal, or Docker SDK
+  execution in the Worker (SDK remains Node-only by design).
+* YouTube (parked), or visual inspection of the screenshot.
 
 ## Design details
 
@@ -306,8 +340,8 @@ is marked failed. Wrangler emulates and persists it locally. The placeholder nam
 in the config is for local use, not an actual Cloudflare resource. Provision KV
 before a real deployment. Set `INNGEST_EVENT_URL=https://inn.gs` and
 `INNGEST_EVENT_KEY` for cloud event ingestion, and the appropriate API URL/signing
-key for status access. Event ingestion requires no code change. Cloud status API
-behavior and a real deployment have not been tested.
+key for status access. Event ingestion requires no code change. The deployed e2e
+exercised Cloud status through the Worker; see the verification record above.
 
 The pending record, submission receipt/failure and callback receipt use separate
 KV keys. Each is written once in the normal path, avoiding Workers KV's one-write
@@ -336,7 +370,8 @@ the header. It enqueues a deterministic
 callback event ID, and marks the callback accepted. Retries are idempotent within
 Inngest's event-deduplication window; KV is not an atomic exactly-once lock.
 Callbacks retry with bounded exponential backoff. The sandbox egress policy
-explicitly includes `*.trycloudflare.com` alongside the reference's allow-all.
+explicitly includes the `CALLBACK_PUBLIC_URL` hostname alongside the reference's
+allow-all.
 
 Remote result JSON and encode SHA-256 values are read after the callback. Small
 callbacks contain only job ID, status and allowlisted numeric timing/duration
