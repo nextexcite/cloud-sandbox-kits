@@ -57,6 +57,12 @@ async function main() {
           const response = await cf(`workers/scripts/${state.workerName}`, "DELETE");
           if (!response.ok && response.status !== 404) throw new Error(`Worker deletion: HTTP ${response.status}`);
         }
+        if (!state.namespaceId) {
+          const list = await cf("storage/kv/namespaces?per_page=100");
+          if (!list.ok) throw new Error(`KV lookup: HTTP ${list.status}`);
+          const { result } = await list.json() as { result: { id: string; title: string }[] };
+          state.namespaceId = result.find((ns) => ns.title === state!.namespaceTitle)?.id;
+        }
         if (state.namespaceId) {
           const response = await cf(`storage/kv/namespaces/${state.namespaceId}`, "DELETE");
           if (!response.ok && response.status !== 404) throw new Error(`KV deletion: HTTP ${response.status}`);
@@ -73,7 +79,7 @@ async function main() {
     }
     let secrets = await readJson<Secrets>(secretsPath);
     if (!secrets) {
-      if (state.workerUrl) throw new Error("Deployment secret file missing; restore it before redeploying");
+      if (state.workerUrl || state.hostId || (state.callbackPublicUrl && !state.callbackPublicUrl.endsWith(".invalid"))) throw new Error("Deployment secret file missing; restore it before redeploying");
       secrets = { FRONTDOOR_TOKEN: randomBytes(32).toString("hex"), CALLBACK_SECRET: randomBytes(32).toString("hex") };
       await privateJson(secretsPath, secrets);
     }
