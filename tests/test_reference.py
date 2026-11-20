@@ -29,7 +29,7 @@ class ReferenceTests(unittest.TestCase):
                 self.assertFalse((Path(temp) / 'spec.yaml').exists())
 
     def test_v3_stages_exact_source(self):
-        self.assertEqual(KITS, ['amp', 'codex', 'media'])
+        self.assertEqual(KITS, ['amp', 'browser', 'codex', 'media'])
         for kit in KITS:
             with self.subTest(kit=kit), tempfile.TemporaryDirectory() as temp:
                 result = subprocess.run(['bash', str(ROOT / 'scripts/stage-v3.sh'), kit, temp],
@@ -37,6 +37,8 @@ class ReferenceTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stderr)
                 expected = {f'{kit}.yaml', f'{kit}.dockerfile', f'{kit}-context.md',
                             'scripts/install-toolchains.sh', 'scripts/refresh-node-lts.sh', 'scripts/verify-runtime.sh'}
+                if kit == 'browser':
+                    expected = {f'{kit}.yaml', f'{kit}.dockerfile', f'{kit}-context.md', 'scripts/browser-smoke.mjs'}
                 if kit == 'media':
                     expected = {'media.yaml', 'media.dockerfile', 'media-context.md', 'scripts/media.py'}
                 actual = {str(p.relative_to(temp)) for p in Path(temp).rglob('*') if p.is_file()}
@@ -86,9 +88,10 @@ class ReferenceTests(unittest.TestCase):
             content = path.read_text()
             self.assertIn('USER agent', content)
             agent = 'amp' if path.name == 'Dockerfile' else path.stem
-            entrypoint = '/bin/bash' if agent == 'media' else agent
+            entrypoint = '/bin/bash' if agent in ['browser', 'media'] else agent
             self.assertIn(f'ENTRYPOINT ["{entrypoint}"]', content)
-            self.assertIn('ARG BASE_IMAGE=docker.io/sbx/shell-docker-image:latest', content)
+            base = 'docker.io/library/node:24-bookworm-slim' if agent == 'browser' else 'docker.io/sbx/shell-docker-image:latest'
+            self.assertIn(f'ARG BASE_IMAGE={base}', content)
         for path in (ROOT / 'kits').rglob('*'):
             if path.is_file():
                 content = path.read_text()
@@ -113,9 +116,10 @@ class ReferenceTests(unittest.TestCase):
         for forbidden in ['secrets.', 'self-hosted', 'pull_request_target', 'docker login', 'docker push', 'sbx ', '--privileged']:
             self.assertNotIn(forbidden, content)
         self.assertIn('timeout-minutes: 30', content)
-        self.assertIn('kit: [amp, codex]', content)
+        self.assertIn('kit: [amp, codex, browser, media]', content)
         self.assertIn('docker buildx build -f kits/v3/${{ matrix.kit }}/${{ matrix.kit }}.yaml kits/v3/${{ matrix.kit }} -t sbx-agent-kits/${{ matrix.kit }}:ci --load', content)
         self.assertIn('docker run --rm --entrypoint sbx-agent-kits-verify sbx-agent-kits/${{ matrix.kit }}:ci', content)
+        self.assertIn('docker run --rm --network none --entrypoint media-smoke sbx-agent-kits/media:ci', content)
         self.assertNotIn('--push', content)
 
 if __name__ == '__main__':
