@@ -8,6 +8,21 @@ export function required(name: string): string {
   return value;
 }
 
+export function deploymentMode(value = "deploy") {
+  if (value !== "deploy" && value !== "host-only" && value !== "host-cloud" && value !== "teardown") {
+    throw new Error("Use deploy, host-only, host-cloud [--restart-only], or teardown [--all]");
+  }
+  return value;
+}
+
+export function callbackOrigin(value = "https://worker-not-configured.invalid") {
+  const url = new URL(value);
+  if (url.protocol !== "https:" || url.username || url.password || url.pathname !== "/" || url.search || url.hash) {
+    throw new Error("CALLBACK_PUBLIC_URL must be an HTTPS origin without credentials");
+  }
+  return url.origin;
+}
+
 export async function privateJson(path: string, value: unknown) {
   await mkdir("out", { recursive: true, mode: 0o700 });
   const file = await open(`${path}.tmp`, "w", 0o600);
@@ -63,6 +78,7 @@ export interface Deployment {
   accountId?: string;
   workerOwned?: boolean;
   hostOnly: boolean;
+  callbackPublicUrl?: string;
 }
 export interface Secrets { FRONTDOOR_TOKEN: string; CALLBACK_SECRET: string }
 export const statePath = "out/deployment.json";

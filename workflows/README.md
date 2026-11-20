@@ -159,7 +159,30 @@ pre-existing sandboxes. Evidence is written before fallback cleanup to
 tokens or full transcripts. SIGINT/SIGTERM trigger bounded cleanup after the
 current request/poll. SIGKILL cannot run cleanup; TTL still applies.
 
-Key-free host smoke test (also billable; teardown afterwards):
+Host-only deployment (also billable):
+
+To deploy a real signed Inngest Cloud host **without Cloudflare**, supply the
+Docker and Inngest environment variables above, then run:
+
+```sh
+npm run deploy -- host-cloud
+# Later, update the callback origin and restart/resync without reinstalling:
+CALLBACK_PUBLIC_URL=https://your-worker.your-subdomain.workers.dev npm run deploy -- host-cloud --restart-only
+```
+
+This skips Worker/KV entirely, injects the real Inngest keys into the host process,
+and syncs via PUT. The default callback origin is the deliberately non-resolving
+`https://worker-not-configured.invalid`; do not submit media jobs until configured.
+The selected origin, host name and URL persist in private `out/deployment.json`;
+the sync status/response is saved to private `out/host-sync.json`. Generated
+callback/front-door tokens remain in `out/deployment-secrets.json` for eventual
+Worker deployment. Host-cloud leaves the host running with the same 24-hour TTL.
+In Inngest 4.26.2, cloud GET introspection requires an `x-inngest-signature`
+(unsigned GET returns 401). The current registered count is six: capture,
+encode, transcribe, cancellation cleanup, and two SDK-generated media failure
+handlers from `onFailure`.
+
+For an unsigned, key-free smoke test instead:
 
 ```sh
 npm run deploy -- host-only
@@ -173,7 +196,7 @@ npm run deploy -- teardown
 Deployment verification record (fill after provisioning keys):
 
 * Worker/KV deployment and secrets: **not yet tested**.
-* Inngest Cloud sync and authenticated status: **not yet tested**.
+* Inngest Cloud host sync: **verified with host-cloud**; Worker status: **not yet tested**.
 * Deployed workload/cancellation tests: **not yet tested**.
 * Host-only HTTPS introspection: **see preparation report / out/host-dry-run.json**.
 

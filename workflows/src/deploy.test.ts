@@ -1,7 +1,19 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, mkdir, rm, stat, writeFile } from "node:fs/promises";
-import { command, privateJson, readJson, required, until } from "../scripts/deploy-lib.js";
+import { callbackOrigin, command, deploymentMode, privateJson, readJson, required, until } from "../scripts/deploy-lib.js";
+
+test("host-cloud mode and callback configuration reject invalid input", () => {
+  assert.equal(deploymentMode(), "deploy");
+  for (const mode of ["host-cloud", "host-only", "deploy", "teardown"]) assert.equal(deploymentMode(mode), mode);
+  assert.throws(() => deploymentMode(""), /Use deploy/);
+  assert.throws(() => deploymentMode("unknown"), /Use deploy/);
+  assert.equal(callbackOrigin(), "https://worker-not-configured.invalid");
+  assert.equal(callbackOrigin("https://example.workers.dev/"), "https://example.workers.dev");
+  for (const value of ["", "http://example.com", "https://user:password@example.com", "https://example.com/path"]) {
+    assert.throws(() => callbackOrigin(value));
+  }
+});
 
 test("deployment state is private, round-trips, and distinguishes missing from invalid files", async () => {
   await mkdir("out", { recursive: true });

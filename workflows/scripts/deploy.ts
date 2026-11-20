@@ -2,15 +2,21 @@ import { randomBytes } from "node:crypto";
 import { readdir, readFile, rm } from "node:fs/promises";
 import { NotFoundError, type Sandbox } from "@docker/sandboxes";
 import { dockerClient } from "../src/sandbox.js";
-import { command, privateJson, readJson, request, required, secretsPath, statePath, until, type Deployment, type Secrets } from "./deploy-lib.js";
+import { callbackOrigin, command, deploymentMode, privateJson, readJson, request, required, secretsPath, statePath, until, type Deployment, type Secrets } from "./deploy-lib.js";
 
 async function main() {
-  const mode = process.argv[2] ?? "deploy";
-  if (!["deploy", "host-only", "teardown"].includes(mode)) throw new Error("Use deploy, host-only, or teardown [--all]");
-  const hostOnly = mode === "host-only";
+  const mode = deploymentMode(process.argv[2]);
+  const smoke = mode === "host-only";
+  const hostOnly = smoke || mode === "host-cloud";
+  const restartOnly = process.argv.includes("--restart-only");
+  if (restartOnly && mode !== "host-cloud") throw new Error("--restart-only requires host-cloud");
   let state = await readJson<Deployment>(statePath);
   if (mode === "teardown" && !state) return;
   required("DOCKER_ID"); required("DOCKER_CLOUD_SANDBOX_TOKEN");
+  if (mode === "host-cloud") {
+    required("INNGEST_EVENT_KEY"); required("INNGEST_SIGNING_KEY");
+  }
+  if (restartOnly && !state?.hostId) throw new Error("No recorded host to restart");
   if (mode !== "teardown" && !hostOnly) {
     for (const key of ["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID", "INNGEST_EVENT_KEY", "INNGEST_SIGNING_KEY"]) required(key);
   }
@@ -112,6 +118,7 @@ async function main() {
         host = await client.sdk.get(state.hostId);
         if (host.displayName !== state.hostName) throw new Error("Host ownership mismatch");
       } catch (error) {
+        if (restartOnly) throw error;
         if (!(error instanceof NotFoundError)) throw error;
         state.hostName = `wf-host-${Date.now()}`;
         delete state.hostId; delete state.hostUrl; await save();
@@ -130,26 +137,32 @@ async function main() {
       if (result.exitCode !== 0 || result.incomplete) throw new Error("Host command failed; remote output suppressed to protect secrets");
       return result.stdout;
     };
-    await run(["bash", "-lc", "set -eu; export DEBIAN_FRONTEND=noninteractive; if ! command -v node >/dev/null; then apt-get update -qq; apt-get install -y -qq curl ca-certificates; curl -fsSL https://deb.nodesource.com/setup_24.x | bash -; apt-get install -y -qq nodejs; fi; mkdir -p /opt/workflows/src /opt/workflows/out"]);
-    for (const name of ["package.json", "package-lock.json", ...(await readdir("src")).filter((file) => /\.(ts|py)$/.test(file)).map((file) => `src/${file}`)]) {
-      await host.files.write(`/opt/workflows/${name}`, await readFile(name));
+    if (!restartOnly) {
+      await run(["bash", "-lc", "set -eu; export DEBIAN_FRONTEND=noninteractive; if ! command -v node >/dev/null; then apt-get update -qq; apt-get install -y -qq curl ca-certificates; curl -fsSL https://deb.nodesource.com/setup_24.x | bash -; apt-get install -y -qq nodejs; fi; mkdir -p /opt/workflows/src /opt/workflows/out"]);
+      for (const name of ["package.json", "package-lock.json", ...(await readdir("src")).filter((file) => /\.(ts|py)$/.test(file)).map((file) => `src/${file}`)]) {
+        await host.files.write(`/opt/workflows/${name}`, await readFile(name));
+      }
+      await run(["bash", "-lc", "cd /opt/workflows; npm ci --no-audit --no-fund >/opt/workflows/out/install.log 2>&1"]);
     }
-    await run(["bash", "-lc", "cd /opt/workflows; npm ci --no-audit --no-fund >/opt/workflows/out/install.log 2>&1"]);
     const ports = await host.ports.list();
     const port = ports.published?.find((port) => port.number === 3000) ?? await host.ports.create({ number: 3000, protocol: "tcp" });
     if (!port.url?.startsWith("https://")) throw new Error("No public HTTPS host URL");
     state.hostUrl = port.url.replace(/\/$/, ""); await save();
     const hostEnv: Record<string, string> = { PORT: "3000", INNGEST_SERVE_ORIGIN: state.hostUrl, INNGEST_SERVE_PATH: "/api/inngest" };
-    if (!hostOnly) Object.assign(hostEnv, {
-      DOCKER_ID: required("DOCKER_ID"), DOCKER_CLOUD_SANDBOX_TOKEN: required("DOCKER_CLOUD_SANDBOX_TOKEN"),
-      INNGEST_SIGNING_KEY: required("INNGEST_SIGNING_KEY"), INNGEST_EVENT_KEY: required("INNGEST_EVENT_KEY"),
-      CALLBACK_PUBLIC_URL: state.workerUrl!, CALLBACK_SECRET: secrets.CALLBACK_SECRET,
-    });
+    if (!smoke) {
+      state.callbackPublicUrl = callbackOrigin(process.env.CALLBACK_PUBLIC_URL ?? state.workerUrl ?? state.callbackPublicUrl);
+      await save();
+      Object.assign(hostEnv, {
+        DOCKER_ID: required("DOCKER_ID"), DOCKER_CLOUD_SANDBOX_TOKEN: required("DOCKER_CLOUD_SANDBOX_TOKEN"),
+        INNGEST_SIGNING_KEY: required("INNGEST_SIGNING_KEY"), INNGEST_EVENT_KEY: required("INNGEST_EVENT_KEY"),
+        CALLBACK_PUBLIC_URL: state.callbackPublicUrl, CALLBACK_SECRET: secrets.CALLBACK_SECRET,
+      });
+    }
     await run(["bash", "-lc", "set -eu; cd /opt/workflows; if test -f out/server.pid; then pid=$(cat out/server.pid); if kill -0 \"$pid\" 2>/dev/null; then kill -- -\"$pid\"; fi; fi; unset INNGEST_DEV; nohup setsid ./node_modules/.bin/tsx src/server.ts >out/server.log 2>&1 </dev/null & echo $! >out/server.pid"], hostEnv);
     await until(async () => {
       try { const response = await request(`${state!.hostUrl}/health`); return response.ok ? true : undefined; } catch { return undefined; }
     }, 120_000);
-    if (hostOnly) {
+    if (smoke) {
       const response = await request(`${state.hostUrl}/api/inngest`);
       const log = await run(["tail", "-c", "4096", "/opt/workflows/out/server.log"]);
       const missingSigningKey = log.includes("In cloud mode but no signing key found");
@@ -157,6 +170,8 @@ async function main() {
       await privateJson("out/host-dry-run.json", { hostUrl: state.hostUrl, introspectionStatus: response.status, missingSigningKey, body: await response.json() });
     } else {
       const response = await request(`${state.hostUrl}/api/inngest`, { method: "PUT" });
+      const syncResponse = await response.json();
+      await privateJson("out/host-sync.json", { hostName: state.hostName, hostUrl: state.hostUrl, status: response.status, response: syncResponse });
       if (!response.ok) throw new Error(`Inngest sync: HTTP ${response.status}`);
     }
     if (state.workerUrl) console.log(state.workerUrl);
