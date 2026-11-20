@@ -6,7 +6,9 @@
     "dev": "tsx src/server.ts",
     "check": "tsc --noEmit",
     "test": "tsx --test src/*.test.ts",
-    "e2e": "tsx scripts/e2e.ts"
+    "e2e": "tsx scripts/e2e.ts",
+    "deploy": "tsx scripts/deploy.ts",
+    "e2e:deployed": "tsx scripts/e2e-deployed.ts"
   },
   "dependencies": {
     "@docker/sandboxes": "0.53.0",
