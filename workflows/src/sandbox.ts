@@ -1,4 +1,4 @@
-import { Sandboxes, pat, NotFoundError, ResourceWaitError, type Sandbox, type ClientCreateOptions } from "@docker/sandboxes";
+import { Sandboxes, pat, NotFoundError, PreconditionError, ResourceWaitError, type Sandbox, type ClientCreateOptions } from "@docker/sandboxes";
 
 export interface SandboxOptions {
   name: string;
@@ -48,9 +48,19 @@ export class SandboxClient {
 
   async delete(sandbox: Sandbox) {
     if (!sandbox.displayName?.startsWith("wf-")) throw new Error("Refusing to delete a non-workflow sandbox");
-    try { await sandbox.delete({ force: true }); }
+    let current = sandbox;
+    try {
+      for (let attempt = 0; ; attempt++) {
+        try { current = await current.delete({ force: true }) ?? current; break; }
+        catch (error) {
+          if (!(error instanceof PreconditionError) || attempt === 2) throw error;
+          current = await current.refresh();
+          if (current.displayName !== sandbox.displayName) throw new Error("Sandbox ownership changed during deletion");
+        }
+      }
+    }
     catch (error) { if (error instanceof NotFoundError) return; throw error; }
-    try { await sandbox.waitUntilDeleted({ timeoutMs: 120_000 }); }
+    try { await current.waitUntilDeleted({ timeoutMs: 120_000 }); }
     catch (error) {
       if (error instanceof ResourceWaitError && error.cause instanceof NotFoundError) return;
       throw error;

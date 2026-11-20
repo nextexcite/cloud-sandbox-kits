@@ -23,6 +23,13 @@ export function callbackOrigin(value = "https://worker-not-configured.invalid") 
   return url.origin;
 }
 
+export function validateDeploymentOwnership(state: Deployment) {
+  if (!/^wf-host-\d+$/.test(state.hostName) || (!state.hostOnly &&
+    (!/^sandbox-workflows-\d+$/.test(state.workerName) || !/^wf-jobs-\d+$/.test(state.namespaceTitle)))) {
+    throw new Error("Invalid deployment ownership record");
+  }
+}
+
 export async function privateJson(path: string, value: unknown) {
   await mkdir("out", { recursive: true, mode: 0o700 });
   const file = await open(`${path}.tmp`, "w", 0o600);
@@ -65,6 +72,13 @@ export async function until<T>(fn: () => Promise<T | undefined>, timeoutMs: numb
 
 export async function request(url: string, init?: RequestInit) {
   return fetch(url, { ...init, signal: AbortSignal.timeout(30_000) });
+}
+
+export async function cancelCloudRun(runId: string, signingKey: string, fetcher = request) {
+  const response = await fetcher(`https://api.inngest.com/v1/runs/${encodeURIComponent(runId)}`, {
+    method: "DELETE", headers: { Authorization: `Bearer ${signingKey}` },
+  });
+  if (!response.ok) throw new Error(`Cancel run: HTTP ${response.status}`);
 }
 
 export interface Deployment {

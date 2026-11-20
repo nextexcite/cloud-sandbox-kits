@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import { readdir, readFile, rm } from "node:fs/promises";
 import { NotFoundError, type Sandbox } from "@docker/sandboxes";
 import { dockerClient } from "../src/sandbox.js";
-import { callbackOrigin, command, deploymentMode, privateJson, readJson, request, required, secretsPath, statePath, until, type Deployment, type Secrets } from "./deploy-lib.js";
+import { callbackOrigin, command, deploymentMode, privateJson, readJson, request, required, secretsPath, statePath, until, validateDeploymentOwnership, type Deployment, type Secrets } from "./deploy-lib.js";
 
 async function main() {
   const mode = deploymentMode(process.argv[2]);
@@ -40,7 +40,7 @@ async function main() {
       }
       await save();
     }
-    if (!/^wf-host-\d+$/.test(state.hostName) || !/^sandbox-workflows-\d+$/.test(state.workerName) || !/^wf-jobs-\d+$/.test(state.namespaceTitle)) throw new Error("Invalid deployment ownership record");
+    validateDeploymentOwnership(state);
     if (mode === "teardown") {
       let host: Sandbox | undefined;
       if (state.hostId) {

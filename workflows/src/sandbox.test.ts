@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { NotFoundError, ResourceWaitError, type Sandboxes, type Sandbox } from "@docker/sandboxes";
+import { NotFoundError, PreconditionError, ResourceWaitError, type Sandboxes, type Sandbox } from "@docker/sandboxes";
 import { SandboxClient, dockerClient } from "./sandbox.js";
 
 test("credentials are required without exposing values", () => {
@@ -50,5 +50,39 @@ test("delete handles SDK missing-resource wait error but propagates other failur
   } } as unknown as Sandbox;
   await client.delete(sandbox);
   sandbox.waitUntilDeleted = async () => { throw new Error("unavailable"); };
+  await assert.rejects(client.delete(sandbox), /unavailable/);
+});
+
+test("delete refreshes an immutable stale handle and waits on the accepted deletion", async () => {
+  const client = new SandboxClient({} as Sandboxes);
+  let waited = false;
+  const accepted = { waitUntilDeleted: async () => { waited = true; } } as unknown as Sandbox;
+  const fresh = { displayName: "wf-test", delete: async (options: { force: boolean }) => {
+    assert.equal(options.force, true);
+    return accepted;
+  } } as unknown as Sandbox;
+  const stale = { displayName: "wf-test", delete: async () => {
+    throw new PreconditionError({ code: "failedPrecondition" }, 412);
+  }, refresh: async () => fresh } as unknown as Sandbox;
+  await client.delete(stale);
+  assert.equal(waited, true);
+});
+
+test("delete tolerates disappearance on refresh, bounds conflicts and rejects ownership changes", async () => {
+  const client = new SandboxClient({} as Sandboxes);
+  const conflict = new PreconditionError({ code: "failedPrecondition" }, 412);
+  let attempts = 0;
+  const stub = { displayName: "wf-test", delete: async (): Promise<Sandbox | undefined> => { attempts++; throw conflict; },
+    refresh: async (): Promise<Sandbox> => { throw new NotFoundError({ code: "notFound" }, 404); },
+  };
+  const sandbox = stub as unknown as Sandbox;
+  await client.delete(sandbox);
+  stub.refresh = async () => sandbox;
+  attempts = 0;
+  await assert.rejects(client.delete(sandbox), PreconditionError);
+  assert.equal(attempts, 3);
+  stub.refresh = async () => ({ displayName: "wf-other" } as Sandbox);
+  await assert.rejects(client.delete(sandbox), /ownership changed/);
+  stub.delete = async () => { throw new Error("unavailable"); };
   await assert.rejects(client.delete(sandbox), /unavailable/);
 });

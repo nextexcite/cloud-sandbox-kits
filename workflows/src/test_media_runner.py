@@ -31,6 +31,7 @@ class MediaRunnerTest(unittest.TestCase):
                       side_effect=subprocess.CalledProcessError(22, "curl") if download_error else None), \
                 patch("urllib.request.urlopen", return_value=response) as send:
             runpy.run_path(str(RUNNER))
+        self.assertEqual(send.call_args.args[0].get_header("User-agent"), "sandbox-workflows/1.0")
         return json.loads(write.call_args.args[0]), send.call_args.args[0].data
 
     def test_encode_download_failure_has_specific_safe_reason(self):

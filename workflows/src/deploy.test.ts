@@ -1,7 +1,25 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, mkdir, rm, stat, writeFile } from "node:fs/promises";
-import { callbackOrigin, command, deploymentMode, privateJson, readJson, required, until } from "../scripts/deploy-lib.js";
+import { callbackOrigin, cancelCloudRun, command, deploymentMode, privateJson, readJson, required, until, validateDeploymentOwnership } from "../scripts/deploy-lib.js";
+
+test("host-only ownership permits external Worker metadata without weakening owned-resource checks", () => {
+  const state = { hostName: "wf-host-123", workerName: "external-worker", namespaceTitle: "external-kv", workerOwned: false, hostOnly: true };
+  validateDeploymentOwnership(state);
+  assert.throws(() => validateDeploymentOwnership({ ...state, hostName: "" }), /ownership/);
+  assert.throws(() => validateDeploymentOwnership({ ...state, hostOnly: false }), /ownership/);
+  validateDeploymentOwnership({ ...state, hostOnly: false, workerName: "sandbox-workflows-123", namespaceTitle: "wf-jobs-123" });
+});
+
+test("Cloud run cancellation uses the documented DELETE endpoint and preserves HTTP failures", async () => {
+  await cancelCloudRun("run/id", "test-only", async (url, init) => {
+    assert.equal(url, "https://api.inngest.com/v1/runs/run%2Fid");
+    assert.equal(init?.method, "DELETE");
+    assert.equal(new Headers(init?.headers).get("Authorization"), "Bearer test-only");
+    return new Response(null, { status: 200 });
+  });
+  await assert.rejects(cancelCloudRun("run", "test-only", async () => new Response(null, { status: 404 })), /HTTP 404/);
+});
 
 test("host-cloud mode and callback configuration reject invalid input", () => {
   assert.equal(deploymentMode(), "deploy");

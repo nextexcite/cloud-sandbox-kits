@@ -1,5 +1,5 @@
 import { dockerClient } from "../src/sandbox.js";
-import { privateJson, readJson, request, required, secretsPath, statePath, until, type Deployment, type Secrets } from "./deploy-lib.js";
+import { cancelCloudRun, privateJson, readJson, request, required, secretsPath, statePath, until, type Deployment, type Secrets } from "./deploy-lib.js";
 
 interface Run { run_id: string; status: string; output?: unknown }
 export const sourceUrl = "https://media.w3.org/2010/05/sintel/trailer.mp4";
@@ -37,14 +37,10 @@ async function main() {
     jobs.set(response.jobId, response.inngestEventIds?.[0]);
     return response.jobId as string;
   };
-  const cancel = async (runId: string) => {
-    const response = await request(`https://api.inngest.com/v1/runs/${encodeURIComponent(runId)}`, {
-      method: "DELETE", headers: { Authorization: `Bearer ${signingKey}` },
-    });
-    if (!response.ok) throw new Error(`Cancel run: HTTP ${response.status}`);
-  };
+  const cancel = (runId: string) => cancelCloudRun(runId, signingKey);
   let passed = false;
   let cleanupVerified = false;
+  let stage = "initial-listing";
   try {
     for await (const sandbox of client.sdk.all()) initial.add(sandbox.name);
     const cases = [
@@ -55,11 +51,14 @@ async function main() {
       { label: "bad-source", kind: "encode", data: { sourceUrl: "https://example.com/this-wf-source-does-not-exist.mp4", durationSec: 1, codecs: ["h264"] } },
     ];
     for (const item of cases) {
+      stage = item.label;
       const jobId = await submit(item.kind, item.data);
+      console.log(`SUBMITTED ${item.label} ${jobId}`);
       const run = await until(async () => {
         const runs = await status(jobId);
         return runs.find((run) => terminal.includes(run.status));
       }, 1_800_000);
+      console.log(`TERMINAL ${item.label} ${run.status}`);
       const expected = item.label === "bad-source" ? "Failed" : "Completed";
       if (run.status !== expected) throw new Error(`${item.label}: expected ${expected}, got ${run.status}`);
       const output = typeof run.output === "string" ? JSON.parse(run.output) : run.output;
@@ -79,6 +78,7 @@ async function main() {
         outputs: value?.result?.outputs?.map((file: Record<string, unknown>) => ({ codec: file.codec, bytes: file.bytes, sha256: file.sha256 })),
       });
     }
+    stage = "cancel-cleanup";
     const jobId = await submit("encode", { durationSec: 120, codecs: ["hevc"], size: "micro" });
     const runId = await until(async () => {
       const runs = await status(jobId);
@@ -100,6 +100,7 @@ async function main() {
     cleanupVerified = true;
     results.push({ label: "cancel-cleanup", jobId, status: "Cancelled", sandboxDeleted: true });
     passed = true;
+    stage = "leftover-check";
   } finally {
     try {
       const listing: object[] = [];
@@ -109,9 +110,9 @@ async function main() {
         const owned = [...jobs.keys()].some((id) => sandbox.displayName === `wf-${id}`) && !initial.has(sandbox.name);
         const isHost = sandbox.name === state.hostId && sandbox.displayName === state.hostName;
         if (sandbox.displayName?.startsWith("wf-") && !isHost) leftovers++;
-        listing.push({ sandbox: owned ? sandbox.displayName : `pre-existing-${++unrelated}`, status: sandbox.status });
+        listing.push({ sandbox: owned || isHost ? sandbox.displayName : `pre-existing-${++unrelated}`, status: sandbox.status });
       }
-      const evidence = { passed: passed && leftovers === 0, cancellationCleanupVerified: cleanupVerified, jobs: results, preSweepListing: listing, leftoverJobSandboxes: leftovers };
+      const evidence = { passed: passed && leftovers === 0, failureStage: passed && leftovers === 0 ? undefined : stage, cancellationCleanupVerified: cleanupVerified, jobs: results, preSweepListing: listing, leftoverJobSandboxes: leftovers };
       await privateJson("out/e2e-deployed-results.json", evidence);
       console.log(JSON.stringify(evidence, null, 2));
       if (leftovers) throw new Error("Workflow job sandboxes remain before fallback cleanup");
