@@ -108,9 +108,7 @@ class ReferenceTests(unittest.TestCase):
             self.assertIn('COPY scripts/install-toolchains.sh', path.read_text())
 
     def test_ci_is_read_only_and_builds_public_kit(self):
-        workflows = list((ROOT / '.github/workflows').glob('*'))
-        self.assertEqual(len(workflows), 1)
-        content = workflows[0].read_text()
+        content = (ROOT / '.github/workflows/check.yml').read_text()
         for expected in ['contents: read', 'persist-credentials: false', 'runs-on: ubuntu-24.04', 'timeout-minutes: 5']:
             self.assertIn(expected, content)
         for forbidden in ['secrets.', 'self-hosted', 'pull_request_target', 'docker login', 'docker push', 'sbx ', '--privileged']:

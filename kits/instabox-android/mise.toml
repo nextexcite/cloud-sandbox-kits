@@ -1,0 +1,6 @@
+[tools]
+uv = "0.13.9"
+fnox = "1.50.0"
+direnv = "2.38.2"
+"aqua:Schniz/fnm" = "1.39.0"
+just = "1.59.0"

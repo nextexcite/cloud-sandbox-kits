@@ -9,6 +9,10 @@ The v2 descriptor is not a runnable container image. The runtime Dockerfile
 and v3 workload image are ordinary OCI images, but Docker Sandboxes lifecycle,
 network policy and credential injection require the corresponding runtime.
 
+For Instabox's separate Android template, see the credential-free
+[Android development overlay](kits/instabox-android/README.md). It is not an
+sbx Kit or a replacement for the Android VM kernel.
+
 ## Scope and safety
 
 This reference includes templates, a shared toolchain installer, context staging

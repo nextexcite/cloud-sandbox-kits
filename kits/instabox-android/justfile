@@ -1,0 +1,17 @@
+set shell := ["bash", "-eu", "-o", "pipefail", "-c"]
+
+default:
+    @just --list
+
+verify:
+    @"$HOME/.local/share/instabox-android/bin/mise" --version
+    @for tool in uv fnox direnv fnm just; do "$tool" --version; done
+    @java -version
+    @adb devices -l
+    @timeout 120 bash -c 'until [ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d "\r")" = 1 ]; do sleep 2; done' || { echo "Android did not finish booting within 120 seconds" >&2; exit 1; }
+    @echo "Android boot complete"
+
+# Run intentionally and review the changed mise.toml before publishing an update.
+update:
+    "$HOME/.local/share/instabox-android/bin/mise" upgrade --bump
+    "$HOME/.local/share/instabox-android/bin/mise" exec -- just verify

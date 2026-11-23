@@ -1,0 +1,17 @@
+plugins { id 'com.android.application' }
+android {
+    namespace 'dev.sandboxtest'
+    compileSdk 34
+    defaultConfig {
+        applicationId 'dev.sandboxtest.instrumentationdemo'
+        minSdk 26
+        targetSdk 34
+        testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
+    }
+}
+
+dependencies {
+    androidTestImplementation 'androidx.test:core:1.6.1'
+    androidTestImplementation 'androidx.test.ext:junit:1.2.1'
+    androidTestImplementation 'androidx.test:runner:1.6.2'
+}
