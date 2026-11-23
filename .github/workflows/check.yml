@@ -16,6 +16,25 @@ jobs:
           persist-credentials: false
       - name: Validate source and stage examples
         run: bash scripts/check.sh
+      - name: Verify Android overlay contents
+        shell: bash
+        run: |
+          docker build -f kits/instabox-android/Dockerfile -t instabox-android-overlay:ci .
+          docker image inspect instabox-android-overlay:ci --format '{{json .Config.Labels}}' |
+            jq -e '.["org.opencontainers.image.source"] == "https://github.com/nextexcite/sbx-agent-kits" and .["org.opencontainers.image.licenses"] == "Apache-2.0"'
+
+          work=$(mktemp -d)
+          trap 'rm -rf "$work"' EXIT
+          docker image save -o "$work/overlay.tar" instabox-android-overlay:ci
+          # A scratch overlay has one payload layer; inspect it without creating a container.
+          layer=$(tar -xOf "$work/overlay.tar" manifest.json |
+            jq -er '.[0].Layers | if length == 1 then .[0] else error("Expected one overlay layer") end')
+
+          mkdir -p "$work/actual" "$work/expected/instabox-android"
+          tar -xOf "$work/overlay.tar" "$layer" | tar -xf - -C "$work/actual"
+          cp LICENSE kits/instabox-android/{README.md,mise.toml,setup.sh,justfile} "$work/expected/instabox-android/"
+          diff -qr --no-dereference "$work/expected" "$work/actual"
+          bash -n "$work/actual/instabox-android/setup.sh"
   build-v3:
     strategy:
       fail-fast: false
